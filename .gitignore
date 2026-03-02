@@ -1,0 +1,28 @@
+# OS files
+Thumbs.db
+.DS_Store
+
+# Editor / IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# PowerShell
+*.psm1.bak
+
+# Azure CLI
+azureProfile.json
+
+# Secrets — never commit
+*.env
+.env.*
+secrets.yaml
+tokens.txt
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
