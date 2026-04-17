@@ -257,3 +257,7 @@ MIT (Massachusetts Institute of Technology) — see [LICENSE](LICENSE).
 - [Microsoft Defender for AI](https://learn.microsoft.com/en-us/azure/defender-for-cloud/ai-threat-protection)
 - [Microsoft Sentinel Documentation](https://learn.microsoft.com/en-us/azure/sentinel/)
 - [Azure OpenAI Diagnostic Logging](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/monitoring)
+
+---
+
+> **Note:** This lab was inspired by the [tuxsharxsec/Jailbreaks](https://github.com/tuxsharxsec/Jailbreaks) repository.
