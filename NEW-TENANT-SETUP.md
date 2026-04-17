@@ -12,7 +12,6 @@ Step-by-step guide to deploy the AI Jailbreak Lab in a **new Azure tenant** from
 | Entra ID role | Global Administrator or Subscription Owner (for initial setup) |
 | Azure CLI | v2.60+ installed locally ([install](https://learn.microsoft.com/cli/azure/install-azure-cli)) |
 | PowerShell 7+ | For running test scripts |
-| Security Copilot license | Required for agent deployment (Step 8) |
 
 ---
 
@@ -284,7 +283,6 @@ az role assignment create \
 | Microsoft Sentinel Reader | Query logs and view incidents | Resource group |
 | Microsoft Sentinel Contributor | Create analytics rules, manage incidents | Resource group |
 | Monitoring Contributor | Enable/modify diagnostic settings | Resource group |
-| Security Copilot Contributor | Deploy and manage Security Copilot agents | Tenant-level |
 
 ---
 
@@ -329,40 +327,7 @@ Expected: Most tests return `[BLOCKED]` (HTTP 400) — confirming content filter
 
 ---
 
-## Step 8: Update and Deploy the Security Copilot Agent
-
-### 8a: Update the Agent Manifest
-
-In `sentinel-ai-threat-report-agent.yaml`, replace **all 6 KQL skill** placeholder values:
-
-| Placeholder | New Value |
-|---|---|
-| `<your-tenant-id>` | Output of `az account show --query tenantId -o tsv` |
-| `<your-subscription-id>` | Output of `az account show --query id -o tsv` |
-| `<your-resource-group>` | `rg-ai-jailbreak-lab` |
-| `<your-workspace-name>` | `law-ai-jailbreak-lab` |
-
-### 8b: Deploy to Security Copilot
-
-> **Important:** Security Copilot must be provisioned in the new tenant. This requires a Security Copilot license and SCU allocation.
-
-1. Open [Security Copilot](https://securitycopilot.microsoft.com)
-2. Ensure you're signed in with the **new tenant** credentials
-3. Go to **Agents** → **Build**
-4. Upload the updated `sentinel-ai-threat-report-agent.yaml`
-5. Wait for validation → agent appears as "Sentinel AI Threat Report Agent"
-
-### 8c: Verify Agent Connectivity
-
-Chat with the agent and use a starter prompt:
-
-> "Generate an executive report on all blocked AI requests in the last 24 hours"
-
-If it returns data, the connection to Sentinel is working.
-
----
-
-## Step 9: Create Sentinel Analytics Rules
+## Step 8: Create Sentinel Analytics Rules
 
 ```bash
 # Rule 1: AI Jailbreak Attempt Detected (Medium severity)
@@ -425,7 +390,7 @@ az sentinel alert-rule create \
 
 ---
 
-## Step 10: Deploy Auto-Tag Playbook
+## Step 9: Deploy Auto-Tag Playbook
 
 ```bash
 az deployment group create \
@@ -513,8 +478,5 @@ Region:             eastus2
 - [ ] Test scripts updated with new endpoint/deployment
 - [ ] Test scripts run successfully (tokens acquired, requests sent)
 - [ ] Blocked requests visible in Sentinel
-- [ ] Agent YAML updated with new tenant values
-- [ ] Agent deployed to Security Copilot
-- [ ] Agent returns data when queried
 - [ ] Analytics rules created
 - [ ] Auto-tag playbook deployed and linked
