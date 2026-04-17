@@ -189,6 +189,25 @@ AzureDiagnostics
 
 ---
 
+## Step 7: Deploy the Auto-Tag Playbook (Optional)
+
+Automatically tag jailbreak incidents with **"AI Threat"** using a Logic App playbook.
+
+See full instructions: [`playbooks/Tag-AI-Threat-On-Jailbreak/README.md`](playbooks/Tag-AI-Threat-On-Jailbreak/README.md)
+
+**Quick deploy:**
+
+```bash
+az deployment group create \
+  --resource-group <your-resource-group> \
+  --template-file playbooks/Tag-AI-Threat-On-Jailbreak/azuredeploy.json \
+  --parameters PlaybookName="Tag-AI-Threat-On-Jailbreak"
+```
+
+After deploying, create an **automation rule** in Sentinel to link the playbook to your jailbreak analytic rule. The playbook README has step-by-step instructions for both Portal and CLI.
+
+---
+
 ## Verification Checklist
 
 - [ ] Diagnostic logging enabled on Azure OpenAI
@@ -198,6 +217,7 @@ AzureDiagnostics
 - [ ] "Chat with agent" returns data when prompted
 - [ ] (Optional) Sentinel analytics rules created
 - [ ] (Optional) Attack simulation run and alerts generated
+- [ ] (Optional) Tag-AI-Threat playbook deployed and linked to analytic rule
 
 ---
 

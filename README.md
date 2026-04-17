@@ -1,59 +1,45 @@
-# Sentinel AI Threat Report Agent
+# AI Jailbreak & Sentinel 101
 
-A custom **Microsoft Security Copilot** agent that investigates AI security threats — blocked requests, jailbreak attempts, and content filter violations on Azure OpenAI — and generates **executive-level reports** for CISO board presentations.
+A hands-on workshop for testing Azure OpenAI content safety filters, simulating MITRE ATLAS attacks, detecting threats with Microsoft Sentinel, and reporting with Security Copilot.
+
+> **Purpose:** Learn how AI jailbreak attacks work, how Azure defends against them, and how to build a full detection-and-response pipeline — from content filters to Sentinel alerts to executive reports.
 
 ---
 
-## What This Agent Does
+## What You'll Learn
 
-When deployed in Security Copilot, the agent:
-
-1. **Queries** Microsoft Sentinel for blocked AI requests, security alerts, and incidents via KQL
-2. **Analyzes** attack patterns — burst detection, per-IP block ratios, hourly timelines
-3. **Generates** structured executive reports with risk ratings and MITRE ATLAS mapping
-4. **Recommends** prioritized defensive actions in plain language
-
-### How It Runs
-
-| Mode | Description |
-|------|-------------|
-| **Interactive** | Click "Chat with agent" in Security Copilot and ask questions in natural language |
-| **Scheduled** | Start the trigger — polls every 5 minutes for new blocked requests and auto-generates reports |
+| Module | What You Do | What You Learn |
+|--------|-------------|----------------|
+| **1. Attack Simulation** | Run jailbreak prompts against Azure OpenAI | How content safety filters block prompt injection, DAN, role-play, and obfuscation attacks |
+| **2. Detection Pipeline** | Connect Azure OpenAI logs to Microsoft Sentinel | How diagnostic settings, Defender for AI, and analytics rules create a layered detection system |
+| **3. Threat Investigation** | Query Sentinel with KQL hunting queries | How to correlate blocked requests, security alerts, and MITRE ATLAS techniques |
+| **4. Executive Reporting** | Deploy a Security Copilot agent | How to auto-generate board-level AI threat reports from Sentinel data |
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                  Microsoft Security Copilot                   │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │       Sentinel AI Threat Report Agent                  │  │
-│  │           (Interactive Agent)                          │  │
-│  │                                                        │  │
-│  │  User Question ──► Orchestrator ──► Executive Report   │  │
-│  └──────────┬──────────────┬──────────────────────────────┘  │
-│             │              │                                  │
-│     ┌───────┴───────┐  ┌──┴──────────────┐                   │
-│     │  KQL Skills   │  │   KQL Skills    │                   │
-│     │ (Diagnostics) │  │   (Sentinel)    │                   │
-│     └───────┬───────┘  └──┬──────────────┘                   │
-└─────────────┼─────────────┼──────────────────────────────────┘
-              │             │
-     ┌────────┴─────────────┴─────────┐
-     │     Microsoft Sentinel         │
-     │   Log Analytics Workspace      │
-     │                                │
-     │  AzureDiagnostics              │
-     │  SecurityAlert                 │
-     │  SecurityIncident              │
-     └────────────────┬───────────────┘
-                      │
-     ┌────────────────┴───────────────┐
-     │    Azure OpenAI Service        │
-     │    Content Safety Filters      │
-     │    Prompt Shields              │
-     └────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                     Detection Pipeline                           │
+│                                                                  │
+│  ┌──────────────┐    Diagnostic     ┌────────────────────────┐  │
+│  │ Azure OpenAI │───Settings────────│  Microsoft Sentinel    │  │
+│  │ + Content    │    (Audit,        │  (Log Analytics)       │  │
+│  │   Safety     │    RequestResponse│                        │  │
+│  │   Filters    │    Trace)         │  AzureDiagnostics      │  │
+│  └──────┬───────┘                   │  SecurityAlert         │  │
+│         │                           │  SecurityIncident      │  │
+│         │  Defender    ┌──────────┐ │                        │  │
+│         └──for AI──────│ Defender │─│  Analytics Rules (KQL) │  │
+│                        │ for Cloud│ │  Hunting Queries       │  │
+│                        └──────────┘ └───────────┬────────────┘  │
+│                                                 │               │
+│                                     ┌───────────┴────────────┐  │
+│                                     │  Security Copilot      │  │
+│                                     │  Threat Report Agent   │  │
+│                                     └────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -62,14 +48,33 @@ When deployed in Security Copilot, the agent:
 
 ```
 .
-├── sentinel-ai-threat-report-agent.yaml   # Agent manifest — deploy this to Security Copilot
-├── SETUP.md                               # Step-by-step deployment guide
+├── README.md                                  # This file
+├── SETUP.md                                   # Deployment guide (diagnostic settings, Sentinel, Defender)
+├── TESTING.md                                 # How to run tests and interpret results
+├── WORKSHOP.md                                # Step-by-step workshop guide for facilitators
+├── NEW-TENANT-SETUP.md                        # Provision a brand-new lab tenant from scratch
+├── lab.config.example.ps1                     # Config template — copy to lab.config.ps1
+├── sentinel-ai-threat-report-agent.yaml       # Security Copilot agent manifest
+├── setup/
+│   └── deploy-lab.ps1                         # Validates config and checks connectivity
 ├── tests/
-│   ├── test-aml-t0065.ps1                 # MITRE ATLAS AML.T0065 attack simulation (21 tests)
-│   └── test-jailbreak.ps1                 # Basic jailbreak validation (10 tests)
-├── README.md
-├── LICENSE
-└── .gitignore
+│   ├── test-jailbreak.ps1                     # Quick 10-test smoke test (~2 min)
+│   ├── test-aml-t0065.ps1                     # Full MITRE ATLAS AML.T0065 simulation (21 tests, ~4 min)
+│   ├── test-bypass-analysis.ps1               # Deep filter-bypass analysis (18 tests)
+│   └── test-consistency.ps1                   # Consistency test — 60 calls across 6 attack patterns
+├── hunting/
+│   ├── ai-alerts-mitre-correlation.kql        # KQL hunting query — correlate alerts with MITRE tactics
+│   └── deploy-analytics-rules.ps1             # Deploy 4 custom Sentinel analytics rules
+├── playbooks/
+│   └── Tag-AI-Threat-On-Jailbreak/            # Logic App playbook for auto-tagging incidents
+│       ├── azuredeploy.json                   # ARM template
+│       ├── automation-rule-body.json           # Automation rule config
+│       └── README.md                          # Playbook documentation
+├── docs/                                      # HTML reports generated during the lab
+├── logs/                                      # Test result logs (gitignored)
+├── LICENSE                                    # MIT
+└── .github/
+    └── copilot-instructions.md                # GitHub Copilot workspace instructions
 ```
 
 ---
@@ -80,44 +85,125 @@ When deployed in Security Copilot, the agent:
 
 | Requirement | Details |
 |-------------|---------|
-| **Security Copilot** | Active license with custom plugin permissions |
-| **Microsoft Sentinel** | Workspace receiving Azure OpenAI diagnostic logs |
-| **Azure OpenAI** | Deployed model with content safety filters enabled |
-| **Permissions** | Security Reader on the Sentinel workspace |
+| **Azure subscription** | With Azure OpenAI deployed (any GPT-4 class model) |
+| **Microsoft Sentinel** | Log Analytics workspace with Sentinel enabled |
+| **Azure CLI** | v2.60+ — logged in to the correct tenant |
+| **PowerShell** | 5.1+ or 7+ |
+| **RBAC roles** | Cognitive Services User (OpenAI) + Security Reader (Sentinel) |
+| **Security Copilot** *(optional)* | For the executive report agent (Module 4) |
 
-### 1. Configure the manifest
+### 1. Clone and configure
 
-Edit `sentinel-ai-threat-report-agent.yaml` and replace the placeholders in **every KQL skill** (6 skills):
+```powershell
+git clone https://github.com/<your-org>/ai-jailbreak-sentinel-101.git
+cd ai-jailbreak-sentinel-101
 
-```yaml
-Settings:
-  Target: Sentinel
-  TenantId: '<your-tenant-id>'
-  SubscriptionId: '<your-subscription-id>'
-  ResourceGroupName: '<your-resource-group>'
-  WorkspaceName: '<your-workspace-name>'
+# Create your config from the template
+Copy-Item lab.config.example.ps1 lab.config.ps1
 ```
 
-> **Tip:** Use find-and-replace. All 6 skills use the same 4 values.
+Edit `lab.config.ps1` with your Azure resource values — or ask GitHub Copilot to do it:
 
-### 2. Deploy to Security Copilot
+> *"Configure the lab — discover my Azure OpenAI and Sentinel resources and fill in lab.config.ps1"*
 
-1. Open [Security Copilot](https://securitycopilot.microsoft.com) → **Agents** → **Build**
-2. Upload `sentinel-ai-threat-report-agent.yaml`
-3. The agent appears under **Agents** as "Sentinel AI Threat Report Agent"
-4. Click **Chat with agent** to start
+### 2. Validate connectivity
 
-### 3. Start the automatic trigger (optional)
+```powershell
+.\setup\deploy-lab.ps1
+```
 
-1. Open the agent page → click **Run** (top-right dropdown)
-2. Select **ScheduledBlockedRequestCheck**
-3. The agent now polls every 5 minutes and auto-generates reports when blocked requests are found
+### 3. Run your first attack simulation
 
-> For the full walkthrough including diagnostic logging, Sentinel rules, and verification, see **[SETUP.md](SETUP.md)**.
+```powershell
+# Quick smoke test (10 tests, ~2 min)
+.\tests\test-jailbreak.ps1
+
+# Full MITRE ATLAS simulation (21 tests, ~4 min)
+.\tests\test-aml-t0065.ps1
+```
+
+### 4. Investigate in Sentinel
+
+Wait 10-15 minutes for logs, then run the hunting query in your Sentinel workspace:
+
+```kql
+AzureDiagnostics
+| where ResourceProvider == "MICROSOFT.COGNITIVESERVICES"
+| where ResultSignature == "400"
+| summarize BlockedCount = count() by CallerIPAddress, bin(TimeGenerated, 1h)
+```
+
+> For the full walkthrough, see [WORKSHOP.md](WORKSHOP.md). For facilitator setup, see [NEW-TENANT-SETUP.md](NEW-TENANT-SETUP.md).
 
 ---
 
-## Agent Skills
+## Test Scripts
+
+### `test-jailbreak.ps1` — Quick Smoke Test
+
+10 prompts covering the most common jailbreak patterns. Runs in ~2 minutes.
+
+| Expected Results | Count |
+|------------------|-------|
+| BLOCKED (content filter) | ~6 |
+| REFUSED (model declined) | ~2 |
+| PASSED (baselines) | 2 |
+
+### `test-aml-t0065.ps1` — MITRE ATLAS Simulation
+
+21 attack techniques across all sub-techniques of [AML.T0065 (LLM Prompt Injection)](https://atlas.mitre.org/techniques/AML.T0065):
+
+| Sub-technique | Tests | Examples |
+|---------------|-------|----------|
+| Direct Prompt Injection (AML.T0065.000) | 6 | System override, instruction injection, prompt leak |
+| Indirect Prompt Injection (AML.T0065.001) | 4 | Hidden instructions, data exfil via summarization |
+| LLM Jailbreak (AML.T0065.002) | 10 | DAN, Evil Confidant, translation bypass, Base64 encoding |
+| Baseline | 1 | Normal question |
+
+### `test-bypass-analysis.ps1` — Deep Filter-Bypass Analysis
+
+18 tests that probe the 6 attacks that bypass the content filter (HTTP 200) but get refused by the model's RLHF training. Tests original, aggressive, and subtle variants of each.
+
+### `test-consistency.ps1` — Consistency Assessment
+
+60 API calls across 6 attack patterns (10 runs each) to measure how consistently filters block each technique. Outputs JSON results for analysis.
+
+> See [TESTING.md](TESTING.md) for detailed result interpretation and troubleshooting.
+
+---
+
+## Sentinel Detection
+
+### Analytics Rules
+
+Deploy 4 custom rules that detect bypass patterns the content filter misses:
+
+```powershell
+.\hunting\deploy-analytics-rules.ps1
+```
+
+| Rule | Severity | Detects |
+|------|----------|---------|
+| Educational Framing Attack | Medium | Academic/research framing used to bypass filters |
+| Creative Writing Attack | Medium | Fiction/roleplay framing to extract harmful content |
+| Rapid Probing Detection | High | >5 distinct attack techniques from same IP in 1 hour |
+| Output Content Analysis | High | Known attack tool names in model responses |
+
+### Hunting Query
+
+`hunting/ai-alerts-mitre-correlation.kql` — correlates blocked request volumes with MITRE ATLAS techniques and Defender for AI alerts.
+
+### Playbook
+
+`playbooks/Tag-AI-Threat-On-Jailbreak/` — Logic App that auto-tags Sentinel incidents with AI threat metadata. Deploy via the ARM template.
+
+---
+
+## Security Copilot Agent
+
+The `sentinel-ai-threat-report-agent.yaml` manifest deploys a custom agent that generates executive-level AI threat reports from Sentinel data.
+
+### Agent Skills
 
 | Skill | Type | Description |
 |-------|------|-------------|
@@ -129,11 +215,14 @@ Settings:
 | `GetAISecurityIncidents` | KQL | Sentinel incidents with severity and status |
 | `GetAIRequestTimeline` | KQL | Hourly breakdown for pattern analysis |
 
-All query skills accept an optional `LookbackHours` parameter (default: 24).
+### Deploy the Agent
 
----
+1. Edit `sentinel-ai-threat-report-agent.yaml` — replace the 4 placeholder values in every KQL skill's `Settings`
+2. Open [Security Copilot](https://securitycopilot.microsoft.com) → **Agents** → **Build**
+3. Upload the YAML file
+4. Click **Chat with agent** and try: *"Generate an executive report on all blocked AI requests in the last 24 hours"*
 
-## Starter Prompts
+### Starter Prompts
 
 | Prompt | Audience |
 |--------|----------|
@@ -194,57 +283,19 @@ Edit the `Instructions` field in the agent's Settings section. Update the `# Rep
 
 | Issue | Solution |
 |-------|----------|
+| `lab.config.ps1 not found` | Copy from `lab.config.example.ps1` |
 | Agent returns no data | Verify diagnostic logging is enabled and logs flow to the workspace |
-| "No results found" | Try a larger `LookbackHours` (e.g., `168` for 7 days) |
+| "No results found" in Copilot | Try a larger `LookbackHours` (e.g., `168` for 7 days) |
 | KQL errors | Ensure `AzureDiagnostics` and `SecurityAlert` tables exist in your workspace |
-| Upload fails | Validate YAML syntax — `Name` fields cannot contain spaces or special characters |
-| Auth error | Your account needs **Security Reader** on the Sentinel workspace |
+| Analytics rules fail to deploy | Run tests first — rules need `AzureDiagnostics` table to exist (takes 10-15 min after first log) |
+| Tests return 401 | Check `az login` and Cognitive Services User role |
+| Tests return 429 | Rate limited — wait 60 seconds and re-run |
 
 ---
 
-## Extra Resources: Attack Simulation Scripts
+## Disclaimer
 
-These companion scripts validate your AI security detection pipeline by simulating real attack techniques. They are **not required** for the agent — they generate the blocked requests and alerts that the agent reports on.
-
-### tests/test-aml-t0065.ps1 — MITRE ATLAS Full Simulation
-
-Simulates **21 attack techniques** across all sub-techniques of [AML.T0065 (LLM Prompt Injection)](https://atlas.mitre.org/techniques/AML.T0065):
-
-| Sub-technique | Tests | Examples |
-|---------------|-------|----------|
-| Direct Prompt Injection (AML.T0065.000) | 6 | System override, instruction injection, prompt leak |
-| Indirect Prompt Injection (AML.T0065.001) | 4 | Hidden instructions, data exfil via summarization |
-| LLM Jailbreak (AML.T0065.002) | 10 | DAN, Evil Confidant, translation bypass, Base64 encoding |
-| Baseline | 1 | Normal question to verify the model works |
-
-```powershell
-# Requires: Azure CLI logged in, Cognitive Services User role
-.\tests\test-aml-t0065.ps1
-```
-
-Expected: ~12 BLOCKED, ~4 REFUSED, ~2 PASSED, ~2 rate-limited (~84% detection).
-
-### tests/test-jailbreak.ps1 — Quick Validation
-
-A simpler **10-test** script for fast smoke testing:
-
-```powershell
-.\tests\test-jailbreak.ps1
-```
-
-> **Warning:** These scripts are for authorized testing only. Only run them against resources you own.
-
----
-
-## Sentinel Analytics Rules
-
-These companion rules create the alerts and incidents the agent reports on. See [SETUP.md](SETUP.md) for deployment commands.
-
-| Rule | Severity | Triggers When |
-|------|----------|---------------|
-| AI Jailbreak Attempt Detected | Medium | >3 blocked requests from same IP in 24h |
-| AI Brute-Force Jailbreak Detected | High | >10 blocked requests from same IP in 1h |
-| AI High Block Ratio Detected | Medium | >50% block rate with ≥5 total requests |
+These scripts are for **authorized security testing only**. Only run them against Azure OpenAI resources you own or have explicit permission to test. The attack simulations are designed to validate defensive controls, not to cause harm.
 
 ---
 
@@ -256,7 +307,9 @@ MIT — see [LICENSE](LICENSE).
 
 ## References
 
-- [Security Copilot Agent Manifest](https://learn.microsoft.com/en-us/copilot/security/developer/agent-manifest)
-- [Build Interactive Agents](https://learn.microsoft.com/en-us/copilot/security/developer/build-interactive-agents)
-- [MITRE ATLAS AML.T0065](https://atlas.mitre.org/techniques/AML.T0065)
+- [MITRE ATLAS AML.T0065 — LLM Prompt Injection](https://atlas.mitre.org/techniques/AML.T0065)
 - [Azure OpenAI Content Safety](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/content-filter)
+- [Microsoft Defender for AI](https://learn.microsoft.com/en-us/azure/defender-for-cloud/ai-threat-protection)
+- [Microsoft Sentinel Documentation](https://learn.microsoft.com/en-us/azure/sentinel/)
+- [Security Copilot Agent Manifest](https://learn.microsoft.com/en-us/copilot/security/developer/agent-manifest)
+- [Azure OpenAI Diagnostic Logging](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/monitoring)

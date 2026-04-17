@@ -3,9 +3,17 @@
 # Uses Entra ID (Azure AD) authentication - no API keys
 # ============================================================
 
-$endpoint = "https://emeasecloudenablement.cognitiveservices.azure.com"
-$deploymentName = "gpt-4o-mini"
-$apiVersion = "2024-10-21"
+# Load environment config
+$configPath = Join-Path $PSScriptRoot "..\lab.config.ps1"
+if (-not (Test-Path $configPath)) {
+    Write-Host "[!] lab.config.ps1 not found. Copy lab.config.example.ps1 and fill in your values." -ForegroundColor Red
+    exit 1
+}
+. $configPath
+
+$endpoint = $LabEndpoint
+$deploymentName = $LabDeploymentName
+$apiVersion = $LabApiVersion
 
 # Get Entra ID token
 Write-Host "`n=== Acquiring Entra ID Token ===" -ForegroundColor Cyan

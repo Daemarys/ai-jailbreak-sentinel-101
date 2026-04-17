@@ -1,0 +1,37 @@
+{
+  "properties": {
+    "displayName": "Auto-tag AI Threat on Jailbreak",
+    "order": 1,
+    "triggeringLogic": {
+      "isEnabled": true,
+      "triggersOn": "Incidents",
+      "triggersWhen": "Created",
+      "conditions": [
+        {
+          "conditionType": "Property",
+          "conditionProperties": {
+            "propertyName": "IncidentRelatedAnalyticRuleIds",
+            "operator": "Contains",
+            "propertyValues": [
+              "/subscriptions/5f8952b5-811d-45d3-97fd-1b9d79ab2a47/resourceGroups/EMEASECloudEnablement/providers/Microsoft.OperationalInsights/workspaces/asclab-la-thgqk7aw6aki6/providers/Microsoft.SecurityInsights/alertRules/jailbreak-detect-01",
+              "/subscriptions/5f8952b5-811d-45d3-97fd-1b9d79ab2a47/resourceGroups/EMEASECloudEnablement/providers/Microsoft.OperationalInsights/workspaces/asclab-la-thgqk7aw6aki6/providers/Microsoft.SecurityInsights/alertRules/brute-force-jailbreak-01",
+              "/subscriptions/5f8952b5-811d-45d3-97fd-1b9d79ab2a47/resourceGroups/EMEASECloudEnablement/providers/Microsoft.OperationalInsights/workspaces/asclab-la-thgqk7aw6aki6/providers/Microsoft.SecurityInsights/alertRules/brute-force-jailbreak-02",
+              "/subscriptions/5f8952b5-811d-45d3-97fd-1b9d79ab2a47/resourceGroups/EMEASECloudEnablement/providers/Microsoft.OperationalInsights/workspaces/asclab-la-thgqk7aw6aki6/providers/Microsoft.SecurityInsights/alertRules/ec3ab89e-ec32-4e92-ba27-0a174773777f",
+              "/subscriptions/5f8952b5-811d-45d3-97fd-1b9d79ab2a47/resourceGroups/EMEASECloudEnablement/providers/Microsoft.OperationalInsights/workspaces/asclab-la-thgqk7aw6aki6/providers/Microsoft.SecurityInsights/alertRules/high-block-ratio-03"
+            ]
+          }
+        }
+      ]
+    },
+    "actions": [
+      {
+        "order": 1,
+        "actionType": "RunPlaybook",
+        "actionConfiguration": {
+          "logicAppResourceId": "/subscriptions/5f8952b5-811d-45d3-97fd-1b9d79ab2a47/resourceGroups/EMEASECloudEnablement/providers/Microsoft.Logic/workflows/Tag-AI-Threat-On-Jailbreak",
+          "tenantId": "4aae6ce3-d6e2-489d-adec-eb4bb178e498"
+        }
+      }
+    ]
+  }
+}

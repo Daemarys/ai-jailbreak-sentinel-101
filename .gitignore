@@ -19,10 +19,23 @@ azureProfile.json
 .env.*
 secrets.yaml
 tokens.txt
+lab.config.ps1
 
-# Logs
+# Logs and test results
+logs/
 *.log
+
+# Generated HTML reports (large, session-specific)
+docs/*.html
+
+# Python virtual environment
+.venv/
 
 # Temporary files
 *.tmp
 *.bak
+*.pem
+*.cacert
+
+# One-off utility scripts
+generate_docx.py

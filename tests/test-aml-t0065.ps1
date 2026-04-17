@@ -11,9 +11,17 @@
 # Auth: Entra ID (no API keys)
 # ============================================================
 
-$endpoint = "https://emeasecloudenablement.cognitiveservices.azure.com"
-$deploymentName = "gpt-4o-mini"
-$apiVersion = "2024-10-21"
+# Load environment config
+$configPath = Join-Path $PSScriptRoot "..\lab.config.ps1"
+if (-not (Test-Path $configPath)) {
+    Write-Host "[!] lab.config.ps1 not found. Copy lab.config.example.ps1 and fill in your values." -ForegroundColor Red
+    exit 1
+}
+. $configPath
+
+$endpoint = $LabEndpoint
+$deploymentName = $LabDeploymentName
+$apiVersion = $LabApiVersion
 
 # Acquire Entra ID token
 Write-Host "`n========================================" -ForegroundColor Cyan
@@ -242,8 +250,8 @@ Write-Host ""
 
 # Detailed results table
 Write-Host " Detailed Results:" -ForegroundColor White
-Write-Host " {0,-12} {1,-30} {2,-10} {3}" -f "Technique", "Test", "Status", "Detail" -ForegroundColor Gray
-Write-Host " {0,-12} {1,-30} {2,-10} {3}" -f ("-" * 12), ("-" * 30), ("-" * 10), ("-" * 40) -ForegroundColor Gray
+Write-Host (" {0,-12} {1,-30} {2,-10} {3}" -f "Technique", "Test", "Status", "Detail") -ForegroundColor Gray
+Write-Host (" {0,-12} {1,-30} {2,-10} {3}" -f ("-" * 12), ("-" * 30), ("-" * 10), ("-" * 40)) -ForegroundColor Gray
 
 foreach ($r in $results) {
     $color = switch ($r.Status) {

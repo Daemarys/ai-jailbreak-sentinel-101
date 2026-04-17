@@ -1,0 +1,90 @@
+// =============================================================================
+// Advanced Hunting: AI Security Alerts Correlated with MITRE ATT&CK Tactics
+// =============================================================================
+// Surfaces the latest AI-related security alerts, extracts MITRE tactics and
+// techniques, correlates with blocked request volumes from AzureDiagnostics,
+// and enriches with incident status for a unified threat view.
+// =============================================================================
+
+let lookback = 7d;
+// ----- Step 1: AI-related security alerts with MITRE extraction -----
+let AIAlerts = SecurityAlert
+    | where TimeGenerated > ago(lookback)
+    | extend ParsedEntities = parse_json(Entities)
+    | extend MitreTactics = tostring(parse_json(ExtendedProperties).["Tactics"])
+    | extend MitreTechniques = tostring(parse_json(ExtendedProperties).["Techniques"])
+    | extend
+        AlertTactics = iif(isnotempty(Tactics), tostring(Tactics), MitreTactics),
+        AlertTechniques = iif(isnotempty(MitreTechniques), MitreTechniques, ""),
+        SourceIPs = tostring(ParsedEntities),
+        AlertLink = AlertLink
+    | project
+        TimeGenerated,
+        AlertName,
+        AlertSeverity,
+        Description,
+        Status,
+        AlertTactics,
+        AlertTechniques,
+        ProviderName,
+        CompromisedEntity,
+        AlertLink,
+        SystemAlertId;
+// ----- Step 2: Blocked AI requests from AzureDiagnostics -----
+let BlockedRequests = AzureDiagnostics
+    | where TimeGenerated > ago(lookback)
+    | where ResourceProvider == "MICROSOFT.COGNITIVESERVICES"
+    | where ResultSignature == "400"
+    | summarize
+        BlockedCount = count(),
+        FirstBlocked = min(TimeGenerated),
+        LastBlocked = max(TimeGenerated),
+        TargetedModels = make_set(tostring(parse_json(properties_s).modelDeploymentName))
+      by CallerIPAddress, bin(TimeGenerated, 1h);
+// ----- Step 3: Incident correlation -----
+let Incidents = SecurityIncident
+    | where TimeGenerated > ago(lookback)
+    | mv-expand AlertId = parse_json(AlertIds)
+    | extend AlertId = tostring(AlertId)
+    | project IncidentNumber, IncidentTitle = Title, IncidentSeverity = Severity,
+              IncidentStatus = Status, Labels, AlertId;
+// ----- Step 4: Combine alerts with incidents and MITRE mapping -----
+AIAlerts
+| join kind=leftouter (Incidents) on $left.SystemAlertId == $right.AlertId
+| extend
+    // Map known AI attack techniques to MITRE ATLAS
+    ATLASMapping = case(
+        AlertName has "Jailbreak",          "AML.T0065 - Prompt Injection (LLM Jailbreak)",
+        AlertName has "Brute-Force",        "AML.T0065.001 - Prompt Injection: Automated Prompt Enumeration",
+        AlertName has "Block Ratio",        "AML.T0065 - Prompt Injection (High Failure Rate)",
+        AlertName has "Prompt",             "AML.T0065 - Prompt Injection",
+        AlertName has "Content Filter",     "AML.T0054 - LLM Prompt Injection via Content Filter Bypass",
+        "Unmapped"
+    ),
+    // Severity ranking for sorting
+    SeverityRank = case(
+        AlertSeverity == "High", 1,
+        AlertSeverity == "Medium", 2,
+        AlertSeverity == "Low", 3,
+        AlertSeverity == "Informational", 4,
+        5
+    )
+| project
+    TimeGenerated,
+    AlertName,
+    AlertSeverity,
+    SeverityRank,
+    Description,
+    AlertStatus = Status,
+    MITRETactics = AlertTactics,
+    MITRETechniques = AlertTechniques,
+    ATLASMapping,
+    IncidentNumber,
+    IncidentTitle,
+    IncidentStatus,
+    IncidentLabels = Labels,
+    CompromisedEntity,
+    Provider = ProviderName,
+    AlertLink
+| sort by SeverityRank asc, TimeGenerated desc
+| project-away SeverityRank
