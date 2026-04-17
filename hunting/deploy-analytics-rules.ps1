@@ -28,8 +28,8 @@ function Deploy-Rule {
         [string]$Description,
         [string]$Severity,
         [string]$Query,
-        [string]$QueryFrequency = "PT5M",
-        [string]$QueryPeriod    = "PT5M",
+        [string]$QueryFrequency = "P7D",
+        [string]$QueryPeriod    = "P7D",
         [string[]]$Tactics      = @("InitialAccess"),
         [string[]]$Techniques   = @()
     )
@@ -48,8 +48,8 @@ function Deploy-Rule {
             queryPeriod         = $QueryPeriod
             triggerOperator     = "GreaterThan"
             triggerThreshold    = 0
-            suppressionDuration = "PT1H"
-            suppressionEnabled  = $false
+            suppressionDuration = "P7D"
+            suppressionEnabled  = $true
             tactics             = $Tactics
             techniques          = $Techniques
             incidentConfiguration = @{
@@ -57,7 +57,7 @@ function Deploy-Rule {
                 groupingConfiguration = @{
                     enabled              = $true
                     reopenClosedIncident = $false
-                    lookbackDuration     = "PT5H"
+                    lookbackDuration     = "P7D"
                     matchingMethod       = "AllEntities"
                 }
             }
@@ -89,7 +89,7 @@ Write-Host "========================================`n" -ForegroundColor Yellow
 
 Deploy-Rule `
     -DisplayName "AI Jailbreak - Educational Framing Attack" `
-    -Description "Detects prompts using education, certification, or coursework framing to request attack techniques from Azure OpenAI. Maps to MITRE ATLAS AML.T0065." `
+    -Description "Detects prompts using education, certification, or coursework framing to request attack techniques from Azure OpenAI. This rule covers the inference gap: content filters may allow educational framing that still extracts harmful attack knowledge. Runs weekly against AzureDiagnostics request/response logs. Maps to MITRE ATLAS AML.T0065 (LLM Prompt Injection)." `
     -Severity "High" `
     -Tactics @("InitialAccess","Execution") `
     -Query @'
@@ -107,7 +107,7 @@ AzureDiagnostics
 # ── Rule 2: Creative Writing Attack Detection ─────────────────────────
 Deploy-Rule `
     -DisplayName "AI Jailbreak - Creative Writing Attack" `
-    -Description "Detects fiction, screenplay, or creative writing framing used to extract attack methodologies from Azure OpenAI. Maps to MITRE ATLAS AML.T0065." `
+    -Description "Detects fiction, screenplay, or creative writing framing used to extract attack methodologies from Azure OpenAI. This rule covers the inference gap: content filters often allow creative/fictional framing even when the underlying request is for real attack techniques. Runs weekly against AzureDiagnostics request/response logs. Maps to MITRE ATLAS AML.T0065 (LLM Prompt Injection)." `
     -Severity "High" `
     -Tactics @("InitialAccess","Execution") `
     -Query @'
@@ -125,19 +125,17 @@ AzureDiagnostics
 # ── Rule 3: Rapid Probing Detection ───────────────────────────────────
 Deploy-Rule `
     -DisplayName "AI Jailbreak - Rapid Probing (Consistency Attack)" `
-    -Description "Detects an attacker sending the same or similar prompts repeatedly to find non-deterministic safety bypasses. Maps to MITRE ATLAS AML.T0065." `
+    -Description "Detects an attacker sending the same or similar prompts repeatedly to find non-deterministic safety bypasses. This rule covers the inference gap: content filters are probabilistic and an attacker can exploit inconsistency by repeating borderline prompts until one slips through. Runs weekly against AzureDiagnostics request/response logs. Maps to MITRE ATLAS AML.T0065 (LLM Prompt Injection)." `
     -Severity "Medium" `
-    -QueryFrequency "PT5M" `
-    -QueryPeriod "PT15M" `
     -Tactics @("Reconnaissance","InitialAccess") `
     -Query @'
 AzureDiagnostics
 | where ResourceProvider == "MICROSOFT.COGNITIVESERVICES"
-| where TimeGenerated > ago(15m)
+| where TimeGenerated > ago(7d)
 | summarize
     RequestCount = count(),
     DistinctPrompts = dcount(properties_s)
-    by CallerIPAddress, bin(TimeGenerated, 5m)
+    by CallerIPAddress, bin(TimeGenerated, 1h)
 | where RequestCount > 5 and DistinctPrompts < 3
 // Same caller, many requests, few unique prompts = probing attack
 '@
@@ -145,8 +143,8 @@ AzureDiagnostics
 # ── Rule 4: Output Content Analysis ───────────────────────────────────
 Deploy-Rule `
     -DisplayName "AI Jailbreak - Attack Tools in Response" `
-    -Description "Detects model responses containing offensive security tool names or exploit patterns, even when the prompt appeared benign. Maps to MITRE ATLAS AML.T0065." `
-    -Severity "Critical" `
+    -Description "Detects model responses containing offensive security tool names or exploit patterns, even when the prompt appeared benign. This rule covers the inference gap: content filters evaluate prompts at input time but may miss harmful content generated in the response. Analyzing output for known attack tool signatures catches bypasses that evaded input filtering. Runs weekly against AzureDiagnostics request/response logs. Maps to MITRE ATLAS AML.T0065 (LLM Prompt Injection)." `
+    -Severity "High" `
     -Tactics @("Execution","Impact") `
     -Query @'
 AzureDiagnostics

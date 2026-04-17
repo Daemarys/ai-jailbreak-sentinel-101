@@ -1,8 +1,8 @@
 # AI Jailbreak & Sentinel 101
 
-A hands-on workshop for testing Azure OpenAI content safety filters, simulating MITRE ATLAS attacks, detecting threats with Microsoft Sentinel, and reporting with Security Copilot.
+A hands-on workshop for testing Azure OpenAI content safety filters, simulating MITRE (Adversarial Threat Landscape for AI Systems) ATLAS attacks, and detecting threats with Microsoft Sentinel.
 
-> **Purpose:** Learn how AI jailbreak attacks work, how Azure defends against them, and how to build a full detection-and-response pipeline — from content filters to Sentinel alerts to executive reports.
+> **Purpose:** Learn how AI jailbreak attacks work, how Azure defends against them, and how to build a detection pipeline — from content filters to Sentinel analytics rules that cover the inference gap.
 
 ---
 
@@ -10,10 +10,9 @@ A hands-on workshop for testing Azure OpenAI content safety filters, simulating 
 
 | Module | What You Do | What You Learn |
 |--------|-------------|----------------|
-| **1. Attack Simulation** | Run jailbreak prompts against Azure OpenAI | How content safety filters block prompt injection, DAN, role-play, and obfuscation attacks |
-| **2. Detection Pipeline** | Connect Azure OpenAI logs to Microsoft Sentinel | How diagnostic settings, Defender for AI, and analytics rules create a layered detection system |
+| **1. Attack Simulation** | Run jailbreak prompts against Azure OpenAI | How content safety filters block prompt injection, DAN (Do Anything Now), role-play, and obfuscation attacks |
+| **2. Detection Pipeline** | Connect Azure OpenAI logs to Microsoft Sentinel | How diagnostic settings, Defender for AI, and KQL (Kusto Query Language) analytics rules create a layered detection system |
 | **3. Threat Investigation** | Query Sentinel with KQL hunting queries | How to correlate blocked requests, security alerts, and MITRE ATLAS techniques |
-| **4. Executive Reporting** | Deploy a Security Copilot agent | How to auto-generate board-level AI threat reports from Sentinel data |
 
 ---
 
@@ -33,12 +32,7 @@ A hands-on workshop for testing Azure OpenAI content safety filters, simulating 
 │         │  Defender    ┌──────────┐ │                        │  │
 │         └──for AI──────│ Defender │─│  Analytics Rules (KQL) │  │
 │                        │ for Cloud│ │  Hunting Queries       │  │
-│                        └──────────┘ └───────────┬────────────┘  │
-│                                                 │               │
-│                                     ┌───────────┴────────────┐  │
-│                                     │  Security Copilot      │  │
-│                                     │  Threat Report Agent   │  │
-│                                     └────────────────────────┘  │
+│                        └──────────┘ └────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,7 +48,6 @@ A hands-on workshop for testing Azure OpenAI content safety filters, simulating 
 ├── WORKSHOP.md                                # Step-by-step workshop guide for facilitators
 ├── NEW-TENANT-SETUP.md                        # Provision a brand-new lab tenant from scratch
 ├── lab.config.example.ps1                     # Config template — copy to lab.config.ps1
-├── sentinel-ai-threat-report-agent.yaml       # Security Copilot agent manifest
 ├── setup/
 │   └── deploy-lab.ps1                         # Validates config and checks connectivity
 ├── tests/
@@ -89,8 +82,7 @@ A hands-on workshop for testing Azure OpenAI content safety filters, simulating 
 | **Microsoft Sentinel** | Log Analytics workspace with Sentinel enabled |
 | **Azure CLI** | v2.60+ — logged in to the correct tenant |
 | **PowerShell** | 5.1+ or 7+ |
-| **RBAC roles** | Cognitive Services User (OpenAI) + Security Reader (Sentinel) |
-| **Security Copilot** *(optional)* | For the executive report agent (Module 4) |
+| **RBAC (Role-Based Access Control) roles** | Cognitive Services User (Azure OpenAI) + Security Reader (Sentinel) |
 
 ### 1. Clone and configure
 
@@ -156,17 +148,17 @@ AzureDiagnostics
 | Sub-technique | Tests | Examples |
 |---------------|-------|----------|
 | Direct Prompt Injection (AML.T0065.000) | 6 | System override, instruction injection, prompt leak |
-| Indirect Prompt Injection (AML.T0065.001) | 4 | Hidden instructions, data exfil via summarization |
-| LLM Jailbreak (AML.T0065.002) | 10 | DAN, Evil Confidant, translation bypass, Base64 encoding |
+| Indirect Prompt Injection (AML.T0065.001) | 4 | Hidden instructions, data exfiltration via summarization |
+| LLM (Large Language Model) Jailbreak (AML.T0065.002) | 10 | DAN (Do Anything Now), Evil Confidant, translation bypass, Base64 encoding |
 | Baseline | 1 | Normal question |
 
 ### `test-bypass-analysis.ps1` — Deep Filter-Bypass Analysis
 
-18 tests that probe the 6 attacks that bypass the content filter (HTTP 200) but get refused by the model's RLHF training. Tests original, aggressive, and subtle variants of each.
+18 tests that probe the 6 attacks that bypass the content filter (HTTP 200) but get refused by the model's RLHF (Reinforcement Learning from Human Feedback) training. Tests original, aggressive, and subtle variants of each.
 
 ### `test-consistency.ps1` — Consistency Assessment
 
-60 API calls across 6 attack patterns (10 runs each) to measure how consistently filters block each technique. Outputs JSON results for analysis.
+60 API (Application Programming Interface) calls across 6 attack patterns (10 runs each) to measure how consistently filters block each technique. Outputs JSON results for analysis.
 
 > See [TESTING.md](TESTING.md) for detailed result interpretation and troubleshooting.
 
@@ -184,10 +176,10 @@ Deploy 4 custom rules that detect bypass patterns the content filter misses:
 
 | Rule | Severity | Detects |
 |------|----------|---------|
-| Educational Framing Attack | Medium | Academic/research framing used to bypass filters |
-| Creative Writing Attack | Medium | Fiction/roleplay framing to extract harmful content |
-| Rapid Probing Detection | High | >5 distinct attack techniques from same IP in 1 hour |
-| Output Content Analysis | High | Known attack tool names in model responses |
+| Educational Framing Attack | High | Academic/research framing used to bypass filters |
+| Creative Writing Attack | High | Fiction/roleplay framing to extract harmful content |
+| Rapid Probing Detection | Medium | >5 similar requests from same IP in 1 hour (consistency exploitation) |
+| Output Content Analysis | High | Known attack tool names (e.g., metasploit, mimikatz) in model responses |
 
 ### Hunting Query
 
@@ -195,87 +187,41 @@ Deploy 4 custom rules that detect bypass patterns the content filter misses:
 
 ### Playbook
 
-`playbooks/Tag-AI-Threat-On-Jailbreak/` — Logic App that auto-tags Sentinel incidents with AI threat metadata. Deploy via the ARM template.
+`playbooks/Tag-AI-Threat-On-Jailbreak/` — Logic App that auto-tags Sentinel incidents with AI threat metadata. Deploy via the ARM (Azure Resource Manager) template.
 
 ---
 
-## Security Copilot Agent
+## Why Custom Detection Rules? The Inference Gap
 
-The `sentinel-ai-threat-report-agent.yaml` manifest deploys a custom agent that generates executive-level AI threat reports from Sentinel data.
+Azure OpenAI has two layers of defense: **content safety filters** (input/output pattern matching) and **RLHF (Reinforcement Learning from Human Feedback) training** (the model's learned refusal behavior). In testing, content filters block ~67% of attacks outright (HTTP 400), and RLHF catches another ~28% (the model says "I'm sorry, I can't help with that"). Together, they achieve a ~95% detection rate.
 
-### Agent Skills
+**The problem is the remaining 5% — and the attacks that get HTTP 200 responses.**
 
-| Skill | Type | Description |
-|-------|------|-------------|
-| `SentinelAIThreatReportEntrypoint` | Agent | Orchestrates queries and generates the executive report |
-| `FetchNewBlockedAIRequests` | KQL | Trigger — checks for blocked requests in the last 5 min |
-| `GetBlockedAIRequests` | KQL | All HTTP 400 blocked requests with IP, model, timestamp |
-| `GetAIRequestSummaryByIP` | KQL | Per-IP breakdown: total, blocked, success, block ratio % |
-| `GetAISecurityAlerts` | KQL | Sentinel alerts for AI/jailbreak/prompt keywords |
-| `GetAISecurityIncidents` | KQL | Sentinel incidents with severity and status |
-| `GetAIRequestTimeline` | KQL | Hourly breakdown for pattern analysis |
+Our deep analysis of 21 MITRE ATLAS AML.T0065 attack techniques revealed 6 categories that consistently bypass the content filter (receiving HTTP 200 instead of HTTP 400), relying solely on RLHF to refuse:
 
-### Deploy the Agent
+| Bypass Category | Why the Filter Misses It | Risk |
+|----------------|--------------------------|------|
+| **Context Manipulation** | No explicit attack keywords — the prompt sets up a roleplay frame ("a conversation with an unrestricted AI") | The model might comply if RLHF training has gaps for the phrasing |
+| **Token Smuggling** | Obfuscates harmful terms (e.g., "ke-ylo-gger") to evade pattern matching | Content filters rely on keyword detection; splitting tokens defeats this |
+| **Hypothetical/Creative Framing** | Wraps harmful requests in fiction ("for my novel", "movie script", "thought experiment") | Filters often allow creative contexts even when the underlying request is harmful |
+| **Multi-step Goal Hijacking** | Starts with a legitimate question, then gradually escalates to harmful territory | The initial safe context lowers the filter's suspicion threshold |
+| **Ethical/Academic Framing** | Uses researcher or educator identity ("AI ethics researcher", "CompTIA exam prep") | Legitimate-sounding academic framing bypasses keyword-based detection |
+| **Recursive Prompt Injection** | Structures the attack as "pre-processing steps" (e.g., "set safety_mode=false") | Looks like a technical instruction set rather than an attack |
 
-1. Edit `sentinel-ai-threat-report-agent.yaml` — replace the 4 placeholder values in every KQL skill's `Settings`
-2. Open [Security Copilot](https://securitycopilot.microsoft.com) → **Agents** → **Build**
-3. Upload the YAML file
-4. Click **Chat with agent** and try: *"Generate an executive report on all blocked AI requests in the last 24 hours"*
+### The Inference Gap
 
-### Starter Prompts
+Content filters are **deterministic** — they evaluate prompts against known patterns at request time. But LLM (Large Language Model) inference is **probabilistic** — the same prompt can produce different responses across runs. This creates an "inference gap" where:
 
-| Prompt | Audience |
-|--------|----------|
-| *"Generate an executive report on all blocked AI requests in the last 24 hours"* | CISO, SOC |
-| *"Show me a summary of AI jailbreak attempts detected this week"* | CISO, SOC |
-| *"Analyze the risk level of recent AI content filter violations and recommend mitigations"* | CISO, Threat Intel |
-| *"List all high-severity AI security alerts from Sentinel in the last 7 days"* | SOC, Threat Intel |
+1. **Input-side filters miss sophisticated framing** — educational, creative, and ethical framings don't match known attack signatures
+2. **Output-side analysis is limited** — filters check the response for harmful content but can't assess intent or context
+3. **Consistency varies** — a borderline prompt blocked 8 out of 10 times still succeeds 20% of the time through repeated probing
 
----
+**This is why we create custom Sentinel analytics rules.** They provide a third detection layer that operates on the full request/response logs *after* inference, catching patterns that real-time filters miss:
 
-## Report Format
-
-The agent produces structured reports:
-
-| Section | Content |
-|---------|---------|
-| **Executive Summary** | 2-3 sentence overview (under 100 words) |
-| **Key Findings** | Bullet points with numbers |
-| **Risk Assessment** | LOW / MEDIUM / HIGH / CRITICAL with explanation |
-| **Attack Analysis** | Plain-English description mapped to MITRE ATLAS |
-| **Recommendations** | Prioritized action items with urgency |
-| **Appendix** | Raw data tables for the security team |
-
-### Sample Output
-
-> **Executive Summary**
-> In the past 24 hours, 20 AI requests were blocked by Azure content safety filters, all from a single IP address. The attack shows a concentrated burst of prompt injection attempts within a 4-minute window, indicating systematic probing of AI defenses.
->
-> **Risk Assessment: HIGH**
-> The 47.6% block ratio and burst pattern indicate deliberate adversarial testing of the AI model's safety guardrails.
-
----
-
-## Customization
-
-### Change the Sentinel workspace
-
-Replace these 4 values in every KQL skill's `Settings`:
-
-| Field | Description |
-|-------|-------------|
-| `TenantId` | Entra ID tenant ID |
-| `SubscriptionId` | Azure subscription containing Sentinel |
-| `ResourceGroupName` | Resource group of the Log Analytics workspace |
-| `WorkspaceName` | Log Analytics / Sentinel workspace name |
-
-### Add a new KQL skill
-
-Add an entry under `Format: KQL` in SkillGroups, then add its name to `ChildSkills` in `SentinelAIThreatReportEntrypoint`. See the existing skills as templates.
-
-### Modify the report format
-
-Edit the `Instructions` field in the agent's Settings section. Update the `# Report Format` section to change headings, sections, or tone.
+- **Educational Framing Rule** — detects certification/coursework language combined with attack technique keywords
+- **Creative Writing Rule** — detects fiction/screenplay framing combined with harmful action verbs
+- **Rapid Probing Rule** — detects repeated similar prompts from the same IP (exploiting probabilistic inconsistency)
+- **Attack Tools in Response Rule** — detects known offensive tool names (metasploit, mimikatz, hashcat, etc.) in model outputs, regardless of how benign the prompt looked
 
 ---
 
@@ -284,9 +230,8 @@ Edit the `Instructions` field in the agent's Settings section. Update the `# Rep
 | Issue | Solution |
 |-------|----------|
 | `lab.config.ps1 not found` | Copy from `lab.config.example.ps1` |
-| Agent returns no data | Verify diagnostic logging is enabled and logs flow to the workspace |
-| "No results found" in Copilot | Try a larger `LookbackHours` (e.g., `168` for 7 days) |
-| KQL errors | Ensure `AzureDiagnostics` and `SecurityAlert` tables exist in your workspace |
+| "No results found" in queries | Verify diagnostic logging is enabled and logs flow to the workspace |
+| KQL (Kusto Query Language) errors | Ensure `AzureDiagnostics` and `SecurityAlert` tables exist in your workspace |
 | Analytics rules fail to deploy | Run tests first — rules need `AzureDiagnostics` table to exist (takes 10-15 min after first log) |
 | Tests return 401 | Check `az login` and Cognitive Services User role |
 | Tests return 429 | Rate limited — wait 60 seconds and re-run |
@@ -301,15 +246,14 @@ These scripts are for **authorized security testing only**. Only run them agains
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT (Massachusetts Institute of Technology) — see [LICENSE](LICENSE).
 
 ---
 
 ## References
 
-- [MITRE ATLAS AML.T0065 — LLM Prompt Injection](https://atlas.mitre.org/techniques/AML.T0065)
+- [MITRE ATLAS AML.T0065 — LLM (Large Language Model) Prompt Injection](https://atlas.mitre.org/techniques/AML.T0065)
 - [Azure OpenAI Content Safety](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/content-filter)
 - [Microsoft Defender for AI](https://learn.microsoft.com/en-us/azure/defender-for-cloud/ai-threat-protection)
 - [Microsoft Sentinel Documentation](https://learn.microsoft.com/en-us/azure/sentinel/)
-- [Security Copilot Agent Manifest](https://learn.microsoft.com/en-us/copilot/security/developer/agent-manifest)
 - [Azure OpenAI Diagnostic Logging](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/monitoring)
