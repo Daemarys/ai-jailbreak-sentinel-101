@@ -20,6 +20,8 @@ azureProfile.json
 secrets.yaml
 tokens.txt
 lab.config.ps1
+.ws-key.txt
+*.out.txt
 
 # Logs and test results
 logs/

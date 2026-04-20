@@ -286,23 +286,60 @@ az role assignment create \
 
 ---
 
-## Step 7: Update Test Scripts for the New Tenant
+## Step 7: Configure the Lab for the New Tenant
 
-### 7a: Update test-aml-t0065.ps1
+### 7a: Populate `lab.config.ps1`
 
-Edit the top of `tests/test-aml-t0065.ps1` — replace the endpoint and deployment name:
+All test scripts and analytic-rule deployment read from `lab.config.ps1` at the repo root. Copy the template and fill it in:
 
 ```powershell
-# BEFORE (old tenant)
-$endpoint = "https://emeasecloudenablement.cognitiveservices.azure.com"
-$deploymentName = "gpt-4o-mini"
-
-# AFTER (new tenant)
-$endpoint = "https://aoai-jailbreak-lab.openai.azure.com"
-$deploymentName = "gpt-4o"
+Copy-Item lab.config.example.ps1 lab.config.ps1
 ```
 
-### 7b: Re-authenticate to the New Tenant
+Then edit `lab.config.ps1` and set:
+
+| Variable | How to get it |
+|---|---|
+| `$LabTenantId` | `az account show --query tenantId -o tsv` |
+| `$LabSubscriptionId` | `az account show --query id -o tsv` |
+| `$LabEndpoint` | `https://<aoai-name>.cognitiveservices.azure.com` |
+| `$LabDeploymentName` | Your deployment name (e.g. `gpt-4o`) |
+| `$LabApiVersion` | `2024-10-21` (default is fine) |
+| `$LabAoaiResourceGroup` | RG of the Azure OpenAI resource |
+| `$LabResourceGroup` | RG of the Sentinel / Log Analytics workspace |
+| `$LabWorkspaceName` | Log Analytics workspace name |
+| `$LabWorkspaceCustomerId` | Workspace GUID (see below) |
+| `$LabWorkspaceSharedKey` | Primary shared key (see below) |
+| `$LabPromptLogTable` | `AIPromptLog` (creates `AIPromptLog_CL`) |
+
+### 7b: Get the Log Analytics workspace ID and shared key
+
+The test scripts ship prompt/response telemetry to a custom table (`AIPromptLog_CL`) via the Log Analytics HTTP Data Collector API. This requires the workspace **customer ID** (GUID) and **primary shared key**:
+
+```powershell
+$rg = "<your-sentinel-rg>"
+$ws = "<your-workspace-name>"
+
+# Workspace customer ID (safe to commit)
+az monitor log-analytics workspace show `
+  --resource-group $rg --workspace-name $ws `
+  --query customerId -o tsv
+
+# Primary shared key (SECRET — do NOT commit)
+az monitor log-analytics workspace get-shared-keys `
+  --resource-group $rg --workspace-name $ws `
+  --query primarySharedKey -o tsv
+```
+
+Paste the customer ID into `$LabWorkspaceCustomerId`. For the shared key, either paste it directly into `$LabWorkspaceSharedKey` in `lab.config.ps1` (the whole file is gitignored), or store it in `.ws-key.txt` (also gitignored) and reference it:
+
+```powershell
+$LabWorkspaceSharedKey = (Get-Content "$PSScriptRoot\.ws-key.txt" -Raw).Trim()
+```
+
+> **Why a shared key?** The Data Collector API uses HMAC-SHA256 request signing, not Entra tokens. The key grants write access only to this one workspace. Rotate it via `az monitor log-analytics workspace get-shared-keys --regenerate` if exposed.
+
+### 7c: Re-authenticate to the New Tenant
 
 The test scripts use Entra ID tokens. Before running, ensure you're logged in to the new tenant:
 
