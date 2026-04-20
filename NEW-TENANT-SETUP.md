@@ -243,7 +243,7 @@ SecurityAlert
 
 | Data Source | Table | Cost |
 |---|---|---|
-| **Diagnostic settings** (raw API logs) | `AzureDiagnostics` | Billed per GB ingested into Log Analytics. ~0.5 KB per request → 21 tests ≈ negligible. At scale, budget ~$2.76/GB ([pricing](https://azure.microsoft.com/en-us/pricing/details/monitor/)) |
+| **Diagnostic settings** (raw API logs) | `AzureDiagnostics` | Billed per GB ingested into Log Analytics. ~0.5 KB per request → 30 tests ≈ negligible. At scale, budget ~$2.76/GB ([pricing](https://azure.microsoft.com/en-us/pricing/details/monitor/)) |
 | **Defender for AI alerts** | `SecurityAlert`, `SecurityIncident` | **Free** — [free data sources](https://learn.microsoft.com/en-us/azure/sentinel/billing?tabs=simplified%2Ccommitment-tiers#free-data-sources) in Sentinel |
 | **Defender for Cloud plan** (AI workload protection) | N/A | Included with Defender for Cloud (CSPM or CWP plan). Check your plan tier |
 

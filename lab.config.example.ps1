@@ -30,6 +30,20 @@ $LabSubscriptionId       = "<your-subscription-id>"       # az account show --qu
 $LabResourceGroup        = "<your-resource-group>"        # RG containing the Sentinel workspace (may differ from OpenAI RG)
 $LabWorkspaceName        = "<your-workspace-name>"
 
+# --- Custom log ingestion (AIPromptLog_CL) ---
+# The test scripts ship prompt + response text to a custom Log Analytics table
+# via the HTTP Data Collector API. Sentinel analytic rules query this table.
+#
+# Discovery:
+#   $rg = "<your-sentinel-rg>"; $ws = "<your-workspace-name>"
+#   az monitor log-analytics workspace show -g $rg -n $ws --query customerId -o tsv
+#   az monitor log-analytics workspace get-shared-keys -g $rg -n $ws --query primarySharedKey -o tsv
+#
+# Store the shared key in .ws-key.txt (gitignored) rather than pasting it here.
+$LabWorkspaceCustomerId  = "<your-workspace-guid>"        # customerId of the Log Analytics workspace
+$LabWorkspaceSharedKey   = ""                             # e.g. (Get-Content "$PSScriptRoot\.ws-key.txt" -Raw).Trim()
+$LabPromptLogTable       = "AIPromptLog"                  # creates AIPromptLog_CL on first POST
+
 # --- Optional: DeepSeek via AI Foundry (MaaS) ---
 $LabDeepSeekEndpoint = ""    # e.g. https://<hub-name>.eastus2.models.ai.azure.com
 $LabDeepSeekKey      = ""    # MaaS key (only if using key auth)

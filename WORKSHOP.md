@@ -1,6 +1,6 @@
 # Workshop: AI Jailbreak Lab
 
-Hands-on workshop for testing Azure OpenAI content safety filters, simulating MITRE ATLAS AML.T0065 attacks, and investigating threats with Microsoft Sentinel + Security Copilot.
+Hands-on workshop for testing Azure OpenAI content safety filters, simulating MITRE ATLAS AML.T0065 attacks, and investigating threats with Microsoft Sentinel.
 
 ---
 
@@ -59,7 +59,7 @@ Optional (facilitator-only or advanced exercises):
 |---|---|---|
 | Microsoft Sentinel Contributor | Create/edit analytics rules and manage incidents | Creating custom detection rules |
 | Monitoring Contributor | Enable/modify diagnostic settings | Configuring log pipelines |
-| Security Copilot Contributor | Deploy and manage Security Copilot agents | Uploading the agent manifest |
+| Security Reader / Microsoft Sentinel Reader | Query logs, view incidents, run the hunting queries | Every KQL query in Part 4 |
 
 ### How to Verify Your Permissions
 
@@ -262,27 +262,35 @@ At the end you'll see a summary table with detection rate.
 
 ## Part 4: Investigate in Sentinel
 
-> Allow **10–15 minutes** after running tests for logs to appear.
+> Allow **5–10 minutes** after running tests for records to appear in `AIPromptLog_CL` (Data Collector API ingestion lag). `AzureDiagnostics` takes 10–15 minutes.
 >
-> **Important:** Two things must be configured for full visibility:
-> 1. **Diagnostic settings** on the Azure OpenAI resource → sends raw request logs to `AzureDiagnostics` ([Step 5a](NEW-TENANT-SETUP.md#step-5a-enable-diagnostics-on-azure-openai))
-> 2. **Defender for Cloud data connector** in Sentinel → sends security alerts to `SecurityAlert` ([Step 5c](NEW-TENANT-SETUP.md#step-5c-connect-defender-for-cloud-to-sentinel))
+> **Three data paths are relevant in this lab:**
+> 1. **Diagnostic settings** on Azure OpenAI → `AzureDiagnostics` (request metadata only, no prompt text) — [Step 5a](NEW-TENANT-SETUP.md#step-5a-enable-diagnostics-on-azure-openai)
+> 2. **Client-side ingestion** via the HTTP Data Collector API → `AIPromptLog_CL` (full prompt + response text) — set up via `lab.config.ps1`
+> 3. **Defender for Cloud data connector** in Sentinel → `SecurityAlert` (Defender for AI alerts) — [Step 5c](NEW-TENANT-SETUP.md#step-5c-connect-defender-for-cloud-to-sentinel)
 >
-> Without (1), KQL queries on `AzureDiagnostics` return empty. Without (2), incidents won't appear in Sentinel even though they show in Defender XDR.
+> The 4 custom analytic rules in this lab query **path 2**. Path 1 is useful for request-volume / HTTP-400 counts at the gateway. Path 3 surfaces Azure-native AI protections.
 
-### 4.1 — Check Blocked Requests
-
-Open your Log Analytics workspace in the Azure portal and run:
+### 4.1 — Confirm the prompt/response ingest succeeded
 
 ```kql
-AzureDiagnostics
+AIPromptLog_CL
 | where TimeGenerated > ago(1h)
-| where ResourceProvider == "MICROSOFT.COGNITIVESERVICES"
-| where ResultSignature == "400"
-| summarize BlockedCount = count() by CallerIPAddress
+| summarize count() by Status_s
 ```
 
-### 4.2 — View the Full Picture
+You should see rows for `BLOCKED`, `REFUSED`, `PASSED`, and possibly `ERROR` — one row per test call.
+
+### 4.2 — Inspect actual prompt and response text
+
+```kql
+AIPromptLog_CL
+| where TimeGenerated > ago(1h)
+| project TimeGenerated, TestName_s, Status_s, FinishReason_s, Prompt_s, Response_s
+| order by TimeGenerated desc
+```
+
+### 4.3 — Check gateway-level blocking (Azure diagnostics)
 
 ```kql
 AzureDiagnostics
@@ -296,26 +304,30 @@ AzureDiagnostics
 | extend BlockRatio = round(todouble(Blocked) / Total * 100, 1)
 ```
 
-### 4.3 — Run the Hunting Query
+> `AzureDiagnostics` for Azure OpenAI only surfaces request metadata (counts, lengths, timing) — prompt and response text are not there. That's exactly why this lab introduces `AIPromptLog_CL`.
 
-Open `hunting/ai-alerts-mitre-correlation.kql` in Sentinel → Logs to see alerts correlated with MITRE ATT&CK tactics.
+### 4.4 — Check that the custom analytic rules fired
 
-### 4.4 — Check Incidents
+```kql
+SecurityAlert
+| where TimeGenerated > ago(2h)
+| where AlertName startswith "AI Jailbreak"
+| project TimeGenerated, AlertName, AlertSeverity
+| order by TimeGenerated desc
+```
 
-Navigate to **Microsoft Sentinel** → **Incidents** and look for:
-- "AI Jailbreak Attempt Detected"
-- "AI Brute-Force Jailbreak Detected"
-- "AI High Block Ratio Detected"
+Expect alerts for each of the 4 custom rules:
 
----
+| Rule | Severity | Detection |
+|------|----------|-----------|
+| AI Jailbreak - Educational Framing Attack | High | Academic framing + attack keywords |
+| AI Jailbreak - Creative Writing Attack | High | Fiction framing + harmful verbs |
+| AI Jailbreak - Rapid Probing (Consistency Attack) | Medium | ≥5 requests, ≤2 distinct prompts, same caller, 1-min bin |
+| AI Jailbreak - Attack Tools in Response | High | Attack tool names in the model's response |
 
-## Part 5: Security Copilot Agent (Demo)
+### 4.5 — Investigate the incidents
 
-Ask the deployed agent:
-
-> *"Generate an executive report on all blocked AI requests in the last 24 hours"*
-
-The agent queries Sentinel, analyzes attack patterns, and produces an executive-level report with risk ratings and MITRE ATLAS mapping.
+Navigate to **Microsoft Sentinel** → **Incidents**. Each firing rule creates an incident — open one and walk through the entities, the underlying KQL, and the original prompt/response that triggered it.
 
 ---
 

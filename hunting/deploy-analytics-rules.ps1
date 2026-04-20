@@ -34,7 +34,11 @@ function Deploy-Rule {
         [string[]]$Techniques   = @()
     )
 
-    $ruleId = [guid]::NewGuid().ToString()
+    # Deterministic rule ID from display name so re-runs update in place
+    # instead of creating duplicate rules.
+    $sha = [System.Security.Cryptography.SHA1]::Create()
+    $hash = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($DisplayName))
+    $ruleId = [guid]::new($hash[0..15]).ToString()
 
     $rule = @{
         kind = "Scheduled"

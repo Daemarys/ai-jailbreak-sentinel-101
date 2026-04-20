@@ -82,19 +82,20 @@ Runs 10 prompts covering common jailbreak patterns:
 | 9 | Indirect harmful request | Blocked or refused |
 | 10 | Normal prompt (post-test) | Response |
 
-### Option B: Full MITRE ATLAS Simulation (21 tests, ~4 min)
+### Option B: Full MITRE ATLAS Simulation + Sentinel Rule Triggers (30 tests, ~5 min)
 
 ```powershell
 .\tests\test-aml-t0065.ps1
 ```
 
-Simulates all sub-techniques of [AML.T0065 (LLM Prompt Injection)](https://atlas.mitre.org/techniques/AML.T0065):
+Simulates all sub-techniques of [AML.T0065 (LLM Prompt Injection)](https://atlas.mitre.org/techniques/AML.T0065), plus prompts designed to exercise each of the 4 custom Sentinel analytic rules. Every call ships the prompt and response to `AIPromptLog_CL` via the Log Analytics HTTP Data Collector API.
 
 | Sub-technique | ID | Tests | Examples |
 |---|---|---|---|
 | Direct Prompt Injection | AML.T0065.000 | 6 | Instruction override, context manipulation, system prompt extraction, role confusion, delimiter injection, token smuggling |
 | Indirect Prompt Injection | AML.T0065.001 | 4 | Hidden instruction in document, data exfil via summary, instruction in email, payload in JSON |
 | LLM Jailbreak | AML.T0065.002 | 10 | DAN, Evil Confidant, hypothetical scenario, translation bypass, developer mode, Base64, opposite day, multi-step goal hijacking, ethical framing, recursive injection |
+| Sentinel Rule Triggers | — | 9 | Educational framing, creative writing, attack tools in response, plus a 6-prompt probing burst |
 | Baseline | — | 1 | Normal question |
 
 ---
@@ -130,9 +131,19 @@ Simulates all sub-techniques of [AML.T0065 (LLM Prompt Injection)](https://atlas
 
 ## Step 5: Verify Logs in Sentinel
 
-After running tests, wait **10–15 minutes** for logs to flow to Sentinel, then verify:
+After running tests, wait **5–10 minutes** for the Data Collector API to ingest records, then verify:
 
-### Check blocked requests arrived
+### Check prompt/response records arrived (`AIPromptLog_CL`)
+
+```kql
+AIPromptLog_CL
+| where TimeGenerated > ago(1h)
+| summarize count() by Status_s
+```
+
+Expect rows for `BLOCKED`, `REFUSED`, `PASSED`, and possibly `ERROR`.
+
+### Check gateway activity (`AzureDiagnostics`)
 
 ```kql
 AzureDiagnostics
@@ -141,6 +152,8 @@ AzureDiagnostics
 | where ResultSignature == "400"
 | summarize BlockedCount = count() by CallerIPAddress
 ```
+
+> `AzureDiagnostics` only has request metadata for Azure OpenAI — counts, lengths, and timing. The prompt/response text lives in `AIPromptLog_CL` above.
 
 ### Check all request activity
 
@@ -164,15 +177,25 @@ Open `hunting/ai-alerts-mitre-correlation.kql` in your Sentinel workspace to see
 
 ## Step 6: Validate the Detection Pipeline (End-to-End)
 
-If you deployed Sentinel analytics rules (see [SETUP.md](SETUP.md#step-5-create-sentinel-analytics-rules-optional)), verify they fire:
+If you deployed the custom Sentinel analytic rules (see [SETUP.md § Step 5](SETUP.md#step-5-deploy-sentinel-analytic-rules)), verify they fire:
 
-1. **Run the full simulation** — `.\tests\test-aml-t0065.ps1` generates 20+ requests, most blocked
-2. **Wait 10–15 minutes** for log ingestion
-3. **Check Sentinel Incidents** — Navigate to Microsoft Sentinel → Incidents and look for:
-   - "AI Jailbreak Attempt Detected" (fires at >3 blocked requests from same IP)
-   - "AI Brute-Force Jailbreak Detected" (fires at >10 blocked requests in 1 hour)
-   - "AI High Block Ratio Detected" (fires at >50% block rate with ≥5 total requests)
-4. **Test the Security Copilot agent** — Ask: *"Generate an executive report on all blocked AI requests in the last 24 hours"*
+1. **Run the full simulation** — `.\tests\test-aml-t0065.ps1` generates 30 calls and ingests each one into `AIPromptLog_CL`
+2. **Wait 5–10 minutes** for ingestion, then another 5 min for the next scheduled rule evaluation
+3. **Check `SecurityAlert`** in your Sentinel workspace:
+
+```kql
+SecurityAlert
+| where TimeGenerated > ago(2h)
+| where AlertName startswith "AI Jailbreak"
+| project TimeGenerated, AlertName, AlertSeverity
+| order by TimeGenerated desc
+```
+
+Expect alerts for all four rules:
+- **AI Jailbreak - Educational Framing Attack** (High)
+- **AI Jailbreak - Creative Writing Attack** (High)
+- **AI Jailbreak - Rapid Probing (Consistency Attack)** (Medium)
+- **AI Jailbreak - Attack Tools in Response** (High)
 
 ---
 
@@ -181,13 +204,15 @@ If you deployed Sentinel analytics rules (see [SETUP.md](SETUP.md#step-5-create-
 | Problem | Cause | Fix |
 |---------|-------|-----|
 | `lab.config.ps1 not found` | Config file missing | `Copy-Item lab.config.example.ps1 lab.config.ps1` and fill in values |
+| `Log ingestion disabled` warning at test start | `$LabWorkspaceCustomerId` or `$LabWorkspaceSharedKey` empty | Populate them in `lab.config.ps1` (see [NEW-TENANT-SETUP.md § Step 7](NEW-TENANT-SETUP.md#step-7-configure-the-lab-for-the-new-tenant)) |
 | `Could not acquire token` | Not logged in or wrong tenant | `az login --tenant <tenant-id>` |
 | `HTTP 401 Unauthorized` | Missing RBAC role | Grant **Cognitive Services User** on the resource group |
 | `HTTP 404 Not Found` | Wrong endpoint or deployment name | Check `$LabEndpoint` and `$LabDeploymentName` in config |
 | `HTTP 429 Too Many Requests` | Rate limited | The full simulation has 10s delays between tests. Wait a minute and re-run |
 | All tests show ERROR | Token expired | Re-run `az login` to refresh your session |
-| No logs in Sentinel after 20 min | Diagnostic settings missing | See [SETUP.md](SETUP.md#step-1-enable-diagnostic-logging-on-azure-openai) |
-| Analytics rules don't fire | Not enough blocked requests | Run the full `test-aml-t0065.ps1` simulation (need >3 blocked from same IP) |
+| `AIPromptLog_CL` table not found | No successful ingest yet | Run `test-aml-t0065.ps1` at least once. First POST creates the table; queryable ~5–10 min later |
+| No logs in `AzureDiagnostics` after 20 min | Diagnostic settings missing | See [SETUP.md § Step 1](SETUP.md#step-1-enable-diagnostic-logging-on-azure-openai) |
+| Analytic rules deploy but `SecurityAlert` stays empty | Ingestion lag > lookback window | Rules already use a 30-minute lookback. Wait one more 5-min rule cycle; otherwise verify records are in `AIPromptLog_CL` |
 
 ---
 

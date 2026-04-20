@@ -1,6 +1,6 @@
 # Setup & Deployment Guide
 
-Complete instructions for deploying the Sentinel AI Threat Report Agent.
+Complete instructions for deploying the AI Jailbreak Lab end-to-end: diagnostic logging, custom prompt-log ingestion, Sentinel analytic rules, and the auto-tag playbook.
 
 ---
 
@@ -61,130 +61,102 @@ AzureDiagnostics
 
 If no results, wait 15 minutes and retry.
 
----
-
-## Step 3: Configure the Agent Manifest
-
-### Find your values
-
-```bash
-az account show --query tenantId -o tsv          # Tenant ID
-az account show --query id -o tsv                # Subscription ID
-az monitor log-analytics workspace list \
-  --query "[].{Name:name, RG:resourceGroup}" -o table
-```
-
-### Update the YAML
-
-In `sentinel-ai-threat-report-agent.yaml`, find and replace these 4 placeholders in **all 6 KQL skills**:
-
-| Placeholder | Replace With |
-|-------------|-------------|
-| `<your-tenant-id>` | Your Entra ID tenant ID |
-| `<your-subscription-id>` | Subscription containing Sentinel |
-| `<your-resource-group>` | Resource group of the workspace |
-| `<your-workspace-name>` | Log Analytics workspace name |
+> **Heads-up:** `AzureDiagnostics` carries only request **metadata** for Azure OpenAI (counts, lengths, timing) — not the prompt or response text. To let Sentinel pattern-match on content, the test scripts ship the full prompt and response to a custom table (`AIPromptLog_CL`) via the Log Analytics HTTP Data Collector API. That table is created automatically on the first test run (see Step 3).
 
 ---
 
-## Step 4: Deploy to Security Copilot
+## Step 3: Configure the Lab
 
-1. Open [Security Copilot](https://securitycopilot.microsoft.com)
-2. Go to **Agents** → **Build**
-3. Upload `sentinel-ai-threat-report-agent.yaml`
-4. Wait for validation
-5. The agent appears under **Agents** as "Sentinel AI Threat Report Agent"
+Populate `lab.config.ps1` with your tenant, Azure OpenAI, and Sentinel values. See [NEW-TENANT-SETUP.md § Step 7](NEW-TENANT-SETUP.md#step-7-configure-the-lab-for-the-new-tenant) for the full walk-through.
 
-### Use the agent
-
-- **Interactive**: Click **Chat with agent** → use a starter prompt or ask a question
-- **Scheduled**: Click **Run** → select **ScheduledBlockedRequestCheck** → agent polls every 5 min
-
----
-
-## Step 5: Create Sentinel Analytics Rules (Optional)
-
-These rules generate the alerts and incidents the agent reports on.
-
-### Rule 1: AI Jailbreak Attempt Detected (Medium)
-
-```kql
-AzureDiagnostics
-| where ResourceProvider == "MICROSOFT.COGNITIVESERVICES"
-| where ResultSignature == "400"
-| summarize AttemptCount = count(), 
-    FirstAttempt = min(TimeGenerated),
-    LastAttempt = max(TimeGenerated) 
-  by CallerIPAddress, _ResourceId
-| where AttemptCount > 3
-```
-
-Create via CLI:
-
-```bash
-az sentinel alert-rule create \
-  --resource-group <your-rg> \
-  --workspace-name <your-workspace> \
-  --rule-id "jailbreak-detect-01" \
-  --scheduled-alert-rule \
-    query="<KQL above>" \
-    query-frequency="PT5M" \
-    query-period="P1D" \
-    severity="Medium" \
-    trigger-operator="GreaterThan" \
-    trigger-threshold=0 \
-    display-name="AI Jailbreak Attempt Detected" \
-    description="More than 3 blocked AI requests from same IP in 24h" \
-    enabled=true \
-    tactics="InitialAccess" \
-    kind="Scheduled"
-```
-
-### Rule 2: AI Brute-Force Jailbreak Detected (High)
-
-```kql
-AzureDiagnostics
-| where ResourceProvider == "MICROSOFT.COGNITIVESERVICES"
-| where ResultSignature == "400"
-| summarize AttemptCount = count()
-  by CallerIPAddress, bin(TimeGenerated, 1h)
-| where AttemptCount > 10
-```
-
-### Rule 3: AI High Block Ratio Detected (Medium)
-
-```kql
-AzureDiagnostics
-| where ResourceProvider == "MICROSOFT.COGNITIVESERVICES"
-| summarize Total = count(), 
-    Blocked = countif(ResultSignature == "400")
-  by CallerIPAddress
-| extend BlockRatio = round(todouble(Blocked) / Total * 100, 1)
-| where BlockRatio > 50 and Total > 5
-```
-
----
-
-## Step 6: Run Attack Simulation (Optional)
-
-Test that blocked requests flow through to the agent.
+You'll specifically need the Log Analytics workspace **customer ID** and **primary shared key** — the test scripts use the HTTP Data Collector API with HMAC-signed requests to ingest prompt/response records into `AIPromptLog_CL`.
 
 ```powershell
-# Full MITRE ATLAS AML.T0065 simulation (21 tests)
+# Customer ID (safe)
+az monitor log-analytics workspace show -g <rg> -n <ws> --query customerId -o tsv
+
+# Primary shared key (SECRET — store in .ws-key.txt, which is gitignored)
+az monitor log-analytics workspace get-shared-keys -g <rg> -n <ws> `
+  --query primarySharedKey -o tsv | Out-File .ws-key.txt -NoNewline -Encoding ASCII
+```
+
+Validate end-to-end connectivity:
+
+```powershell
+.\setup\deploy-lab.ps1
+```
+
+---
+
+## Step 4: Run a Test to Create the Custom Table
+
+The first successful POST to the Data Collector API creates `AIPromptLog_CL` automatically. Kick it off with the smoke test:
+
+```powershell
+.\tests\test-jailbreak.ps1
+```
+
+Wait 5–10 minutes, then verify:
+
+```kql
+AIPromptLog_CL
+| take 10
+| project TimeGenerated, TestName_s, Status_s, Prompt_s, Response_s
+```
+
+---
+
+## Step 5: Deploy Sentinel Analytic Rules
+
+Deploy the 4 custom rules that detect inference-gap bypasses on the new `AIPromptLog_CL` table:
+
+```powershell
+.\hunting\deploy-analytics-rules.ps1
+```
+
+This creates (or updates, on re-run) four scheduled rules:
+
+| Rule | Severity | Detection |
+|------|----------|-----------|
+| AI Jailbreak - Educational Framing Attack | High | Academic/certification framing + attack keywords in the prompt |
+| AI Jailbreak - Creative Writing Attack | High | Fiction/roleplay framing + harmful verbs in the prompt |
+| AI Jailbreak - Rapid Probing (Consistency Attack) | Medium | ≥5 requests with ≤2 distinct prompts from the same caller within a 1-minute bin |
+| AI Jailbreak - Attack Tools in Response | High | Known offensive tool names (metasploit, mimikatz, sqlmap, …) in the model's response |
+
+Rules run every 5 minutes with a 30-minute lookback to tolerate Data Collector API ingestion latency. The rule IDs are deterministically derived from the display name, so re-running `deploy-analytics-rules.ps1` updates existing rules in place instead of creating duplicates.
+
+---
+
+## Step 6: Run the Full Attack Simulation
+
+```powershell
+# Full MITRE ATLAS AML.T0065 simulation + Sentinel rule triggers (30 tests, ~5 min)
 .\tests\test-aml-t0065.ps1
 
 # Quick smoke test (10 tests)
 .\tests\test-jailbreak.ps1
 ```
 
-After running, wait 5–15 minutes and verify in Sentinel:
+Within ~10 minutes you should see rows in both tables and SecurityAlerts firing:
 
 ```kql
+// Did the calls ingest?
+AIPromptLog_CL
+| where TimeGenerated > ago(1h)
+| summarize count() by Status_s
+
+// Did the gateway see them?
 AzureDiagnostics
 | where TimeGenerated > ago(1h)
 | where ResourceProvider == "MICROSOFT.COGNITIVESERVICES"
-| where ResultSignature == "400"
-| summarize count() by CallerIPAddress
+| summarize count() by ResultSignature
+
+// Did the analytic rules fire?
+SecurityAlert
+| where TimeGenerated > ago(2h)
+| where AlertName startswith "AI Jailbreak"
+| project TimeGenerated, AlertName, AlertSeverity
+| order by TimeGenerated desc
 ```
 
 ---
@@ -211,13 +183,13 @@ After deploying, create an **automation rule** in Sentinel to link the playbook 
 ## Verification Checklist
 
 - [ ] Diagnostic logging enabled on Azure OpenAI
-- [ ] Logs appearing in `AzureDiagnostics` table
-- [ ] YAML updated with your Tenant/Subscription/RG/Workspace
-- [ ] Agent uploaded and visible in Security Copilot
-- [ ] "Chat with agent" returns data when prompted
-- [ ] (Optional) Sentinel analytics rules created
-- [ ] (Optional) Attack simulation run and alerts generated
-- [ ] (Optional) Tag-AI-Threat playbook deployed and linked to analytic rule
+- [ ] `AzureDiagnostics` table receiving rows from `MICROSOFT.COGNITIVESERVICES`
+- [ ] `lab.config.ps1` populated (including `$LabWorkspaceCustomerId` and `$LabWorkspaceSharedKey`)
+- [ ] `.\setup\deploy-lab.ps1` reports all checks passing
+- [ ] `AIPromptLog_CL` table exists and contains rows after running a test
+- [ ] 4 analytic rules deployed via `.\hunting\deploy-analytics-rules.ps1`
+- [ ] `SecurityAlert` contains rows with `AlertName` starting with "AI Jailbreak" after running `test-aml-t0065.ps1`
+- [ ] (Optional) Tag-AI-Threat playbook deployed and linked to analytic rules
 
 ---
 

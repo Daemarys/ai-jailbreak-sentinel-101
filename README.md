@@ -19,22 +19,27 @@ A hands-on workshop for testing Azure OpenAI content safety filters, simulating 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Detection Pipeline                           │
-│                                                                  │
-│  ┌──────────────┐    Diagnostic     ┌────────────────────────┐  │
-│  │ Azure OpenAI │───Settings────────│  Microsoft Sentinel    │  │
-│  │ + Content    │    (Audit,        │  (Log Analytics)       │  │
-│  │   Safety     │    RequestResponse│                        │  │
-│  │   Filters    │    Trace)         │  AzureDiagnostics      │  │
-│  └──────┬───────┘                   │  SecurityAlert         │  │
-│         │                           │  SecurityIncident      │  │
-│         │  Defender    ┌──────────┐ │                        │  │
-│         └──for AI──────│ Defender │─│  Analytics Rules (KQL) │  │
-│                        │ for Cloud│ │  Hunting Queries       │  │
-│                        └──────────┘ └────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                        Detection Pipeline                                 │
+│                                                                           │
+│  ┌──────────────┐  Diagnostic Settings  ┌────────────────────────────┐   │
+│  │ Azure OpenAI │────(metadata only)───▶│  AzureDiagnostics          │   │
+│  │ + Content    │                       │  (request counts, lengths) │   │
+│  │   Safety     │                       └────────────────────────────┘   │
+│  │   Filters    │                                                         │
+│  └──────┬───────┘        HTTP Data      ┌────────────────────────────┐   │
+│         │               Collector API   │  AIPromptLog_CL            │   │
+│         │◀──tests───────(HMAC signed)──▶│  (full prompt + response)  │   │
+│         │                                └─────────────┬──────────────┘   │
+│         │                                              │                  │
+│         │  Defender for AI     ┌──────────┐    Analytics Rules (KQL)     │
+│         └──────────────────────│ Defender │──▶ SecurityAlert /           │
+│                                │ for Cloud│    SecurityIncident          │
+│                                └──────────┘                               │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Why two log streams?** Azure OpenAI diagnostic logs contain only request metadata (counts, lengths, timing) — no prompt or response text. To let Sentinel pattern-match on content, the test scripts tap the full prompt and response client-side and ship them to a custom `AIPromptLog_CL` table via the Log Analytics HTTP Data Collector API. In production the same role is played by an API Management GenAI gateway or an App Service-fronted proxy.
 
 ---
 
@@ -52,7 +57,7 @@ A hands-on workshop for testing Azure OpenAI content safety filters, simulating 
 │   └── deploy-lab.ps1                         # Validates config and checks connectivity
 ├── tests/
 │   ├── test-jailbreak.ps1                     # Quick 10-test smoke test (~2 min)
-│   ├── test-aml-t0065.ps1                     # Full MITRE ATLAS AML.T0065 simulation (21 tests, ~4 min)
+│   ├── test-aml-t0065.ps1                     # Full MITRE ATLAS AML.T0065 simulation + Sentinel rule triggers (30 tests, ~5 min)
 │   ├── test-bypass-analysis.ps1               # Deep filter-bypass analysis (18 tests)
 │   └── test-consistency.ps1                   # Consistency test — 60 calls across 6 attack patterns
 ├── hunting/
@@ -80,9 +85,10 @@ A hands-on workshop for testing Azure OpenAI content safety filters, simulating 
 |-------------|---------|
 | **Azure subscription** | With Azure OpenAI deployed (any GPT-4 class model) |
 | **Microsoft Sentinel** | Log Analytics workspace with Sentinel enabled |
+| **Workspace shared key** | Primary shared key of the Log Analytics workspace (used by test scripts to ingest prompt/response telemetry via the Data Collector API). Retrieve with `az monitor log-analytics workspace get-shared-keys`. |
 | **Azure CLI** | v2.60+ — logged in to the correct tenant |
 | **PowerShell** | 5.1+ or 7+ |
-| **RBAC (Role-Based Access Control) roles** | Cognitive Services User (Azure OpenAI) + Security Reader (Sentinel) |
+| **RBAC (Role-Based Access Control) roles** | Cognitive Services User (Azure OpenAI) + Security Reader (Sentinel) + read access to workspace shared keys |
 
 ### 1. Clone and configure
 
@@ -110,19 +116,29 @@ Edit `lab.config.ps1` with your Azure resource values — or ask GitHub Copilot 
 # Quick smoke test (10 tests, ~2 min)
 .\tests\test-jailbreak.ps1
 
-# Full MITRE ATLAS simulation (21 tests, ~4 min)
+# Full MITRE ATLAS simulation + Sentinel rule triggers (30 tests, ~5 min)
 .\tests\test-aml-t0065.ps1
 ```
 
 ### 4. Investigate in Sentinel
 
-Wait 10-15 minutes for logs, then run the hunting query in your Sentinel workspace:
+Records ingested via the Data Collector API become queryable within ~5–10 minutes. Check them with:
 
 ```kql
-AzureDiagnostics
-| where ResourceProvider == "MICROSOFT.COGNITIVESERVICES"
-| where ResultSignature == "400"
-| summarize BlockedCount = count() by CallerIPAddress, bin(TimeGenerated, 1h)
+AIPromptLog_CL
+| where TimeGenerated > ago(30m)
+| project TimeGenerated, TestName_s, Status_s, FinishReason_s, Prompt_s, Response_s
+| order by TimeGenerated desc
+```
+
+And check that the 4 analytic rules fired:
+
+```kql
+SecurityAlert
+| where AlertName startswith "AI Jailbreak"
+| where TimeGenerated > ago(2h)
+| project TimeGenerated, AlertName, AlertSeverity
+| order by TimeGenerated desc
 ```
 
 > For the full walkthrough, see [WORKSHOP.md](WORKSHOP.md). For facilitator setup, see [NEW-TENANT-SETUP.md](NEW-TENANT-SETUP.md).
@@ -141,15 +157,16 @@ AzureDiagnostics
 | REFUSED (model declined) | ~2 |
 | PASSED (baselines) | 2 |
 
-### `test-aml-t0065.ps1` — MITRE ATLAS Simulation
+### `test-aml-t0065.ps1` — MITRE ATLAS Simulation + Sentinel Rule Triggers
 
-21 attack techniques across all sub-techniques of [AML.T0065 (LLM Prompt Injection)](https://atlas.mitre.org/techniques/AML.T0065):
+30 tests total: 21 attack techniques across all sub-techniques of [AML.T0065 (LLM Prompt Injection)](https://atlas.mitre.org/techniques/AML.T0065), plus 9 prompts engineered to exercise the custom Sentinel analytic rules. Every call is shipped to `AIPromptLog_CL` so Sentinel can pattern-match on prompt and response content.
 
 | Sub-technique | Tests | Examples |
 |---------------|-------|----------|
 | Direct Prompt Injection (AML.T0065.000) | 6 | System override, instruction injection, prompt leak |
 | Indirect Prompt Injection (AML.T0065.001) | 4 | Hidden instructions, data exfiltration via summarization |
 | LLM (Large Language Model) Jailbreak (AML.T0065.002) | 10 | DAN (Do Anything Now), Evil Confidant, translation bypass, Base64 encoding |
+| Sentinel Rule Triggers | 9 | Educational framing, creative writing, attack tools, 6-prompt probing burst |
 | Baseline | 1 | Normal question |
 
 ### `test-bypass-analysis.ps1` — Deep Filter-Bypass Analysis
@@ -174,12 +191,14 @@ Deploy 4 custom rules that detect bypass patterns the content filter misses:
 .\hunting\deploy-analytics-rules.ps1
 ```
 
+All four rules query the custom `AIPromptLog_CL` table populated by the test scripts. They run every 5 minutes with a 30-minute lookback to tolerate Data Collector API ingestion latency.
+
 | Rule | Severity | Detects |
 |------|----------|---------|
-| Educational Framing Attack | High | Academic/research framing used to bypass filters |
-| Creative Writing Attack | High | Fiction/roleplay framing to extract harmful content |
-| Rapid Probing Detection | Medium | >5 similar requests from same IP in 1 hour (consistency exploitation) |
-| Output Content Analysis | High | Known attack tool names (e.g., metasploit, mimikatz) in model responses |
+| Educational Framing Attack | High | Academic/research framing combined with attack-technique keywords in prompts |
+| Creative Writing Attack | High | Fiction/roleplay framing combined with harmful action verbs in prompts |
+| Rapid Probing Detection | Medium | ≥5 requests with ≤2 distinct prompts from the same caller identity within a 1-minute bin (consistency exploitation) |
+| Output Content Analysis | High | Known attack tool names (e.g. metasploit, mimikatz, sqlmap) appearing in model responses |
 
 ### Hunting Query
 
@@ -230,11 +249,12 @@ Content filters are **deterministic** — they evaluate prompts against known pa
 | Issue | Solution |
 |-------|----------|
 | `lab.config.ps1 not found` | Copy from `lab.config.example.ps1` |
-| "No results found" in queries | Verify diagnostic logging is enabled and logs flow to the workspace |
-| KQL (Kusto Query Language) errors | Ensure `AzureDiagnostics` and `SecurityAlert` tables exist in your workspace |
-| Analytics rules fail to deploy | Run tests first — rules need `AzureDiagnostics` table to exist (takes 10-15 min after first log) |
+| Test script warns `Log ingestion disabled` | Missing `$LabWorkspaceCustomerId` or `$LabWorkspaceSharedKey` in `lab.config.ps1` |
+| `AIPromptLog_CL` table doesn't exist in KQL | Run `.\tests\test-aml-t0065.ps1` at least once; the first POST creates the table (~5–10 min delay before it's queryable) |
+| Analytic rules deploy but no `SecurityAlert` rows appear | Wait 5–10 min after the test run for ingestion, then another 5 min for the scheduled rule to evaluate |
 | Tests return 401 | Check `az login` and Cognitive Services User role |
 | Tests return 429 | Rate limited — wait 60 seconds and re-run |
+| Data Collector POST fails | Verify the shared key is the workspace's primary (or secondary) key and has not been rotated |
 
 ---
 
