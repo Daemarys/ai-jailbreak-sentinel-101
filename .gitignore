@@ -41,3 +41,9 @@ docs/*.html
 
 # One-off utility scripts
 generate_docx.py
+
+# Local facilitator/diagnostic helpers (not part of the shipped lab)
+tests/check-*.ps1
+tests/seed-*.ps1
+tests/get-ws-key.ps1
+tests/probe-burst.ps1
