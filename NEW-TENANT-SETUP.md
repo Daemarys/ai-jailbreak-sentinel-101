@@ -243,7 +243,7 @@ SecurityAlert
 
 | Data Source | Table | Cost |
 |---|---|---|
-| **Diagnostic settings** (raw API logs) | `AzureDiagnostics` | Billed per GB ingested into Log Analytics. ~0.5 KB per request → 30 tests ≈ negligible. At scale, budget ~$2.76/GB ([pricing](https://azure.microsoft.com/en-us/pricing/details/monitor/)) |
+| **Diagnostic settings** (raw API logs) | `AzureDiagnostics` | Billed per GB ingested into Log Analytics. ~0.5 KB per request → 24 tests ≈ negligible. At scale, budget ~$2.76/GB ([pricing](https://azure.microsoft.com/en-us/pricing/details/monitor/)) |
 | **Defender for AI alerts** | `SecurityAlert`, `SecurityIncident` | **Free** — [free data sources](https://learn.microsoft.com/en-us/azure/sentinel/billing?tabs=simplified%2Ccommitment-tiers#free-data-sources) in Sentinel |
 | **Defender for Cloud plan** (AI workload protection) | N/A | Included with Defender for Cloud (CSPM or CWP plan). Check your plan tier |
 
@@ -371,7 +371,7 @@ custom table (populated directly by the test scripts via the Data Collector API)
 catch the "inference gap" — prompts that slip past the Azure OpenAI content filter and
 return harmful content — which is the core teaching point of this workshop.
 
-Deploy all four rules with the helper script:
+Deploy all three rules with the helper script:
 
 ```powershell
 .\hunting\deploy-analytics-rules.ps1
@@ -383,7 +383,6 @@ This creates the following scheduled rules (each maps to MITRE ATLAS AML.T0065):
 |---|---|---|
 | AI Jailbreak - Educational Framing Attack | High | Coursework/certification framing requesting attack techniques |
 | AI Jailbreak - Creative Writing Attack | High | Fiction/screenplay framing requesting attack methods |
-| AI Jailbreak - Rapid Probing (Consistency Attack) | Medium | The same prompt repeated ≥5× by one identity |
 | AI Jailbreak - Attack Tools in Response | High | Offensive-tool signatures (mimikatz, sqlmap, …) in the model response |
 
 The rules are tuned for clean, low-noise incidents — see

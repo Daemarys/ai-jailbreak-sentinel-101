@@ -39,7 +39,7 @@ If the user has multiple Azure OpenAI resources, prefer the one with model deplo
 ## Test Scripts
 
 - `tests/test-jailbreak.ps1` — Quick 10-test smoke test (~2 min)
-- `tests/test-aml-t0065.ps1` — Full MITRE ATLAS AML.T0065 simulation + Sentinel rule triggers, 30 tests (~5 min). Ships prompt/response records to `AIPromptLog_CL`.
+- `tests/test-aml-t0065.ps1` — Full MITRE ATLAS AML.T0065 simulation + Sentinel rule triggers, 24 tests (~5 min). Ships prompt/response records to `AIPromptLog_CL`.
 - Both scripts source `lab.config.ps1` automatically
 
 ## Command Explanation

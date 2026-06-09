@@ -82,20 +82,20 @@ Runs 10 prompts covering common jailbreak patterns:
 | 9 | Indirect harmful request | Blocked or refused |
 | 10 | Normal prompt (post-test) | Response |
 
-### Option B: Full MITRE ATLAS Simulation + Sentinel Rule Triggers (30 tests, ~5 min)
+### Option B: Full MITRE ATLAS Simulation + Sentinel Rule Triggers (24 tests, ~5 min)
 
 ```powershell
 .\tests\test-aml-t0065.ps1
 ```
 
-Simulates all sub-techniques of [AML.T0065 (LLM Prompt Injection)](https://atlas.mitre.org/techniques/AML.T0065), plus prompts designed to exercise each of the 4 custom Sentinel analytic rules. Every call ships the prompt and response to `AIPromptLog_CL` via the Log Analytics HTTP Data Collector API.
+Simulates all sub-techniques of [AML.T0065 (LLM Prompt Injection)](https://atlas.mitre.org/techniques/AML.T0065), plus prompts designed to exercise each of the 3 custom Sentinel analytic rules. Every call ships the prompt and response to `AIPromptLog_CL` via the Log Analytics HTTP Data Collector API.
 
 | Sub-technique | ID | Tests | Examples |
 |---|---|---|---|
 | Direct Prompt Injection | AML.T0065.000 | 6 | Instruction override, context manipulation, system prompt extraction, role confusion, delimiter injection, token smuggling |
 | Indirect Prompt Injection | AML.T0065.001 | 4 | Hidden instruction in document, data exfil via summary, instruction in email, payload in JSON |
 | LLM Jailbreak | AML.T0065.002 | 10 | DAN, Evil Confidant, hypothetical scenario, translation bypass, developer mode, Base64, opposite day, multi-step goal hijacking, ethical framing, recursive injection |
-| Sentinel Rule Triggers | — | 9 | Educational framing, creative writing, attack tools in response, plus a 6-prompt probing burst |
+| Sentinel Rule Triggers | — | 3 | Educational framing, creative writing, attack tools in response |
 | Baseline | — | 1 | Normal question |
 
 ---
@@ -191,10 +191,9 @@ SecurityAlert
 | order by TimeGenerated desc
 ```
 
-Expect alerts for all four rules:
+Expect alerts for all three rules:
 - **AI Jailbreak - Educational Framing Attack** (High)
 - **AI Jailbreak - Creative Writing Attack** (High)
-- **AI Jailbreak - Rapid Probing (Consistency Attack)** (Medium)
 - **AI Jailbreak - Attack Tools in Response** (High)
 
 ---
@@ -213,7 +212,7 @@ The analytics rules are tuned so that **detection coverage stays intact while in
 
 ### Entity mapping (the previously-missing piece)
 
-Without entity mappings, **no** grouping strategy can pair incidents — Sentinel has nothing to correlate on. All four content rules map `CallerIdentity_s` → **Account** entity, and publish `customDetails` (technique, test name, outcome / repeat count) so the incident carries context without widening detection.
+Without entity mappings, **no** grouping strategy can pair incidents — Sentinel has nothing to correlate on. All three content rules map `CallerIdentity_s` → **Account** entity, and publish `customDetails` (technique, test name, outcome) so the incident carries context without widening detection.
 
 ### Grouping that handles both attack tempos
 
@@ -234,10 +233,6 @@ groupingConfiguration:
 | **Two different attackers at once** | `Selected` on the Account entity keeps them as **separate** incidents (unlike `AnyAlert`, which would over-merge) |
 
 > **Why not just enable Fusion?** Fusion is a cross-product ML engine for correlating *multistage* attacks across the kill chain (e.g. jailbreak → privilege escalation → exfiltration). It is **not** a dedup/grouping mechanism for a single scheduled rule, does nothing without entity mappings plus other connector signals, and adds no noise reduction here. Leave it disabled for this lab.
-
-### Probing-rule logic fix
-
-The Rapid Probing rule originally summarised **all** of a caller's prompts in a 1-minute bin and required `DistinctPrompts <= 2`. That failed two ways: a burst straddling a minute boundary split below the threshold, and mixing the repeated prompt with other (distinct) test traffic pushed `DistinctPrompts` well above 2 so it never matched. It now **groups by the exact prompt per identity** (`by CallerIdentity_s, Prompt_s`) and fires when any single prompt repeats `>= 5` times — robust to mixed traffic and time boundaries.
 
 > All thresholds and detection signatures are unchanged — security posture is identical; only alert/incident consolidation improved.
 

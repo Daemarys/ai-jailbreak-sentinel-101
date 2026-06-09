@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Deploys 4 custom Sentinel analytics rules for AI jailbreak detection.
+    Deploys 3 custom Sentinel analytics rules for AI jailbreak detection.
     Run this AFTER AzureDiagnostics table has data (diagnostic logs take ~10-15 min for new workspaces).
 
 .DESCRIPTION
@@ -8,8 +8,7 @@
     the Azure OpenAI content filter misses:
       1. Educational Framing Attack Detection
       2. Creative Writing Attack Detection
-      3. Rapid Probing Detection
-      4. Output Content Analysis (attack tool names in responses)
+      3. Output Content Analysis (attack tool names in responses)
 
     Noise-reduction / grouping design (see TESTING.md § Alert Grouping & Noise Reduction):
       - eventGroupingSettings = SingleAlert        -> one alert per rule run, not per row
@@ -17,7 +16,6 @@
       - entityMappings: CallerIdentity_s -> Account -> enables incident correlation
       - grouping by Account, lookback PT24H,        -> one incident per attacker across
         reopenClosedIncident=true                     rules and across attack breaks
-      - Rapid Probing bins on 5m (was 1m)          -> bursts spanning a minute still count
 
 .NOTES
     Requires: az CLI authenticated with Sentinel Contributor role
@@ -167,31 +165,7 @@ AIPromptLog_CL
 | project TimeGenerated, TechniqueId_s, TestName_s, Status_s, Prompt_s, Response_s, CallerIdentity_s
 '@
 
-# ── Rule 3: Rapid Probing Detection ───────────────────────────────────
-Deploy-Rule `
-    -DisplayName "AI Jailbreak - Rapid Probing (Consistency Attack)" `
-    -Description "Detects an attacker sending the same or similar prompts repeatedly to find non-deterministic safety bypasses. This rule covers the inference gap: content filters are probabilistic and an attacker can exploit inconsistency by repeating borderline prompts until one slips through. Runs every 5 minutes against the AIPromptLog_CL custom table populated by the lab test scripts. Maps to MITRE ATLAS AML.T0065 (LLM Prompt Injection)." `
-    -Severity "Medium" `
-    -Tactics @("Reconnaissance","InitialAccess") `
-    -QueryPeriod "PT30M" `
-    -CustomDetails @{ RepeatCount = "RepeatCount"; SamplePrompt = "SamplePrompt" } `
-    -Query @'
-AIPromptLog_CL
-| where TimeGenerated > ago(30m)
-// Group by the EXACT prompt per identity so a repeated prompt is detected
-// even when mixed with other (distinct) traffic from the same caller, and
-// without binning so a burst that straddles a time boundary still counts.
-| summarize
-    RepeatCount = count(),
-    FirstSeen   = min(TimeGenerated),
-    LastSeen    = max(TimeGenerated),
-    SamplePrompt = any(Prompt_s)
-    by CallerIdentity_s, Prompt_s
-| where RepeatCount >= 5
-| project LastSeen, CallerIdentity_s, SamplePrompt, RepeatCount
-'@
-
-# ── Rule 4: Output Content Analysis ───────────────────────────────────
+# ── Rule 3: Output Content Analysis ───────────────────────────────────
 Deploy-Rule `
     -DisplayName "AI Jailbreak - Attack Tools in Response" `
     -Description "Detects model responses containing offensive security tool names or exploit patterns, even when the prompt appeared benign. This rule covers the inference gap: content filters evaluate prompts at input time but may miss harmful content generated in the response. Analyzing output for known attack tool signatures catches bypasses that evaded input filtering. Runs every 5 minutes against the AIPromptLog_CL custom table populated by the lab test scripts. Maps to MITRE ATLAS AML.T0065 (LLM Prompt Injection)." `

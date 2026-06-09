@@ -108,19 +108,18 @@ AIPromptLog_CL
 
 ## Step 5: Deploy Sentinel Analytic Rules
 
-Deploy the 4 custom rules that detect inference-gap bypasses on the new `AIPromptLog_CL` table:
+Deploy the 3 custom rules that detect inference-gap bypasses on the new `AIPromptLog_CL` table:
 
 ```powershell
 .\hunting\deploy-analytics-rules.ps1
 ```
 
-This creates (or updates, on re-run) four scheduled rules:
+This creates (or updates, on re-run) three scheduled rules:
 
 | Rule | Severity | Detection |
 |------|----------|-----------|
 | AI Jailbreak - Educational Framing Attack | High | Academic/certification framing + attack keywords in the prompt |
 | AI Jailbreak - Creative Writing Attack | High | Fiction/roleplay framing + harmful verbs in the prompt |
-| AI Jailbreak - Rapid Probing (Consistency Attack) | Medium | ≥5 requests with ≤2 distinct prompts from the same caller within a 1-minute bin |
 | AI Jailbreak - Attack Tools in Response | High | Known offensive tool names (metasploit, mimikatz, sqlmap, …) in the model's response |
 
 Rules run every 5 minutes with a 30-minute lookback to tolerate Data Collector API ingestion latency. The rule IDs are deterministically derived from the display name, so re-running `deploy-analytics-rules.ps1` updates existing rules in place instead of creating duplicates.
@@ -130,7 +129,7 @@ Rules run every 5 minutes with a 30-minute lookback to tolerate Data Collector A
 ## Step 6: Run the Full Attack Simulation
 
 ```powershell
-# Full MITRE ATLAS AML.T0065 simulation + Sentinel rule triggers (30 tests, ~5 min)
+# Full MITRE ATLAS AML.T0065 simulation + Sentinel rule triggers (24 tests, ~5 min)
 .\tests\test-aml-t0065.ps1
 
 # Quick smoke test (10 tests)

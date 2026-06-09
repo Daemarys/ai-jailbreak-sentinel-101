@@ -269,7 +269,7 @@ At the end you'll see a summary table with detection rate.
 > 2. **Client-side ingestion** via the HTTP Data Collector API → `AIPromptLog_CL` (full prompt + response text) — set up via `lab.config.ps1`
 > 3. **Defender for Cloud data connector** in Sentinel → `SecurityAlert` (Defender for AI alerts) — [Step 5c](NEW-TENANT-SETUP.md#step-5c-connect-defender-for-cloud-to-sentinel)
 >
-> The 4 custom analytic rules in this lab query **path 2**. Path 1 is useful for request-volume / HTTP-400 counts at the gateway. Path 3 surfaces Azure-native AI protections.
+> The 3 custom analytic rules in this lab query **path 2**. Path 1 is useful for request-volume / HTTP-400 counts at the gateway. Path 3 surfaces Azure-native AI protections.
 
 ### 4.1 — Confirm the prompt/response ingest succeeded
 
@@ -316,13 +316,12 @@ SecurityAlert
 | order by TimeGenerated desc
 ```
 
-Expect alerts for each of the 4 custom rules:
+Expect alerts for each of the 3 custom rules:
 
 | Rule | Severity | Detection |
 |------|----------|-----------|
 | AI Jailbreak - Educational Framing Attack | High | Academic framing + attack keywords |
 | AI Jailbreak - Creative Writing Attack | High | Fiction framing + harmful verbs |
-| AI Jailbreak - Rapid Probing (Consistency Attack) | Medium | ≥5 requests, ≤2 distinct prompts, same caller, 1-min bin |
 | AI Jailbreak - Attack Tools in Response | High | Attack tool names in the model's response |
 
 ### 4.5 — Investigate the incidents

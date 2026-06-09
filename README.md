@@ -57,12 +57,12 @@ A hands-on workshop for testing Azure OpenAI content safety filters, simulating 
 │   └── deploy-lab.ps1                         # Validates config and checks connectivity
 ├── tests/
 │   ├── test-jailbreak.ps1                     # Quick 10-test smoke test (~2 min)
-│   ├── test-aml-t0065.ps1                     # Full MITRE ATLAS AML.T0065 simulation + Sentinel rule triggers (30 tests, ~5 min)
+│   ├── test-aml-t0065.ps1                     # Full MITRE ATLAS AML.T0065 simulation + Sentinel rule triggers (24 tests, ~5 min)
 │   ├── test-bypass-analysis.ps1               # Deep filter-bypass analysis (18 tests)
 │   └── test-consistency.ps1                   # Consistency test — 60 calls across 6 attack patterns
 ├── hunting/
 │   ├── ai-alerts-mitre-correlation.kql        # KQL hunting query — correlate alerts with MITRE tactics
-│   └── deploy-analytics-rules.ps1             # Deploy 4 custom Sentinel analytics rules
+│   └── deploy-analytics-rules.ps1             # Deploy 3 custom Sentinel analytics rules
 ├── playbooks/
 │   └── Tag-AI-Threat-On-Jailbreak/            # Logic App playbook for auto-tagging incidents
 │       ├── azuredeploy.json                   # ARM template
@@ -116,7 +116,7 @@ Edit `lab.config.ps1` with your Azure resource values — or ask GitHub Copilot 
 # Quick smoke test (10 tests, ~2 min)
 .\tests\test-jailbreak.ps1
 
-# Full MITRE ATLAS simulation + Sentinel rule triggers (30 tests, ~5 min)
+# Full MITRE ATLAS simulation + Sentinel rule triggers (24 tests, ~5 min)
 .\tests\test-aml-t0065.ps1
 ```
 
@@ -159,14 +159,14 @@ SecurityAlert
 
 ### `test-aml-t0065.ps1` — MITRE ATLAS Simulation + Sentinel Rule Triggers
 
-30 tests total: 21 attack techniques across all sub-techniques of [AML.T0065 (LLM Prompt Injection)](https://atlas.mitre.org/techniques/AML.T0065), plus 9 prompts engineered to exercise the custom Sentinel analytic rules. Every call is shipped to `AIPromptLog_CL` so Sentinel can pattern-match on prompt and response content.
+24 tests total: 21 attack techniques across all sub-techniques of [AML.T0065 (LLM Prompt Injection)](https://atlas.mitre.org/techniques/AML.T0065), plus 3 prompts engineered to exercise the custom Sentinel analytic rules. Every call is shipped to `AIPromptLog_CL` so Sentinel can pattern-match on prompt and response content.
 
 | Sub-technique | Tests | Examples |
 |---------------|-------|----------|
 | Direct Prompt Injection (AML.T0065.000) | 6 | System override, instruction injection, prompt leak |
 | Indirect Prompt Injection (AML.T0065.001) | 4 | Hidden instructions, data exfiltration via summarization |
 | LLM (Large Language Model) Jailbreak (AML.T0065.002) | 10 | DAN (Do Anything Now), Evil Confidant, translation bypass, Base64 encoding |
-| Sentinel Rule Triggers | 9 | Educational framing, creative writing, attack tools, 6-prompt probing burst |
+| Sentinel Rule Triggers | 3 | Educational framing, creative writing, attack tools in response |
 | Baseline | 1 | Normal question |
 
 ### `test-bypass-analysis.ps1` — Deep Filter-Bypass Analysis
@@ -185,19 +185,18 @@ SecurityAlert
 
 ### Analytics Rules
 
-Deploy 4 custom rules that detect bypass patterns the content filter misses:
+Deploy 3 custom rules that detect bypass patterns the content filter misses:
 
 ```powershell
 .\hunting\deploy-analytics-rules.ps1
 ```
 
-All four rules query the custom `AIPromptLog_CL` table populated by the test scripts. They run every 5 minutes with a 30-minute lookback to tolerate Data Collector API ingestion latency.
+All three rules query the custom `AIPromptLog_CL` table populated by the test scripts. They run every 5 minutes with a 30-minute lookback to tolerate Data Collector API ingestion latency.
 
 | Rule | Severity | Detects |
 |------|----------|---------|
 | Educational Framing Attack | High | Academic/research framing combined with attack-technique keywords in prompts |
 | Creative Writing Attack | High | Fiction/roleplay framing combined with harmful action verbs in prompts |
-| Rapid Probing Detection | Medium | ≥5 requests with ≤2 distinct prompts from the same caller identity within a 1-minute bin (consistency exploitation) |
 | Output Content Analysis | High | Known attack tool names (e.g. metasploit, mimikatz, sqlmap) appearing in model responses |
 
 ### Hunting Query
@@ -239,7 +238,6 @@ Content filters are **deterministic** — they evaluate prompts against known pa
 
 - **Educational Framing Rule** — detects certification/coursework language combined with attack technique keywords
 - **Creative Writing Rule** — detects fiction/screenplay framing combined with harmful action verbs
-- **Rapid Probing Rule** — detects repeated similar prompts from the same IP (exploiting probabilistic inconsistency)
 - **Attack Tools in Response Rule** — detects known offensive tool names (metasploit, mimikatz, hashcat, etc.) in model outputs, regardless of how benign the prompt looked
 
 ---
