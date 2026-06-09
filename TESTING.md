@@ -199,7 +199,50 @@ Expect alerts for all four rules:
 
 ---
 
-## Troubleshooting
+## Alert Grouping & Noise Reduction
+
+The analytics rules are tuned so that **detection coverage stays intact while incident noise is minimised**. Every malicious prompt still raises an alert — the tuning only changes how alerts collapse into alerts and incidents, so analysts see one incident per attacker instead of a flood of duplicates.
+
+### The three noise sources (and the fix for each)
+
+| Symptom you might see | Root cause | Applied fix |
+|---|---|---|
+| Many alerts for the *same* attack (e.g. 3× "Creative Writing") | `queryPeriod` (30 min) overlapped `queryFrequency` (5 min), so each run re-scanned the same rows | Content rules use `queryPeriod = PT5M` **and** `where ingestion_time() > ago(5m)` so every record is evaluated exactly once, latency-safe |
+| Hundreds of rows → one alert flood | Default rule emits one alert per matching row | `eventGroupingSettings.aggregationKind = "SingleAlert"` — one alert per rule run regardless of row count |
+| One incident per alert; duplicates never paired (e.g. incidents 690 & 693 for the same rule) | No `entityMappings`, plus `matchingMethod = AllEntities` with `lookbackDuration = PT5M` | Map the `CallerIdentity_s` → Account entity, then group by it over a 24h window (see below) |
+
+### Entity mapping (the previously-missing piece)
+
+Without entity mappings, **no** grouping strategy can pair incidents — Sentinel has nothing to correlate on. All four content rules map `CallerIdentity_s` → **Account** entity, and publish `customDetails` (technique, test name, outcome / repeat count) so the incident carries context without widening detection.
+
+### Grouping that handles both attack tempos
+
+```text
+groupingConfiguration:
+  matchingMethod       = Selected         # group by a specific entity...
+  groupByEntities      = [Account]        # ...the attacker identity
+  lookbackDuration     = PT24H            # pair slow "low-and-slow" attacks across breaks
+  reopenClosedIncident = true             # a returning attacker reopens, not re-creates
+```
+
+> **Scope of rule grouping.** A rule's `groupingConfiguration` consolidates **duplicate alerts from that same rule** into one incident — it does **not** merge alerts from *different* rules. So a single attacker who trips Educational Framing **and** Creative Writing produces **two** incidents (one per attack type), each compiling all of that type's alerts. That is the intended behaviour: one incident per attack type, not per alert. To additionally roll multiple attack types from the same attacker into a single consolidated view, use the auto-tag **automation rule** in [`playbooks/Tag-AI-Threat-On-Jailbreak/`](playbooks/Tag-AI-Threat-On-Jailbreak/README.md).
+
+| Attack pattern | How it's handled |
+|---|---|
+| **Spam burst within 5 min** | `SingleAlert` → one alert; grouping keeps it in one incident |
+| **Slow attacker taking breaks (hours apart)** | 24h `lookbackDuration` + `reopenClosedIncident` + grouping by Account keep the *same rule's* alerts in one incident, even across breaks |
+| **Two different attackers at once** | `Selected` on the Account entity keeps them as **separate** incidents (unlike `AnyAlert`, which would over-merge) |
+
+> **Why not just enable Fusion?** Fusion is a cross-product ML engine for correlating *multistage* attacks across the kill chain (e.g. jailbreak → privilege escalation → exfiltration). It is **not** a dedup/grouping mechanism for a single scheduled rule, does nothing without entity mappings plus other connector signals, and adds no noise reduction here. Leave it disabled for this lab.
+
+### Probing-rule logic fix
+
+The Rapid Probing rule originally summarised **all** of a caller's prompts in a 1-minute bin and required `DistinctPrompts <= 2`. That failed two ways: a burst straddling a minute boundary split below the threshold, and mixing the repeated prompt with other (distinct) test traffic pushed `DistinctPrompts` well above 2 so it never matched. It now **groups by the exact prompt per identity** (`by CallerIdentity_s, Prompt_s`) and fires when any single prompt repeats `>= 5` times — robust to mixed traffic and time boundaries.
+
+> All thresholds and detection signatures are unchanged — security posture is identical; only alert/incident consolidation improved.
+
+---
+
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
@@ -212,7 +255,7 @@ Expect alerts for all four rules:
 | All tests show ERROR | Token expired | Re-run `az login` to refresh your session |
 | `AIPromptLog_CL` table not found | No successful ingest yet | Run `test-aml-t0065.ps1` at least once. First POST creates the table; queryable ~5–10 min later |
 | No logs in `AzureDiagnostics` after 20 min | Diagnostic settings missing | See [SETUP.md § Step 1](SETUP.md#step-1-enable-diagnostic-logging-on-azure-openai) |
-| Analytic rules deploy but `SecurityAlert` stays empty | Ingestion lag > lookback window | Rules already use a 30-minute lookback. Wait one more 5-min rule cycle; otherwise verify records are in `AIPromptLog_CL` |
+| Analytic rules deploy but `SecurityAlert` stays empty | Ingestion lag > evaluation window | Content rules evaluate records by `ingestion_time()` over a 5-min window. Wait one more 5-min rule cycle; otherwise verify records are in `AIPromptLog_CL` |
 
 ---
 

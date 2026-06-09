@@ -11,6 +11,14 @@
       3. Rapid Probing Detection
       4. Output Content Analysis (attack tool names in responses)
 
+    Noise-reduction / grouping design (see TESTING.md § Alert Grouping & Noise Reduction):
+      - eventGroupingSettings = SingleAlert        -> one alert per rule run, not per row
+      - ingestion_time() dedup + queryPeriod=PT5M  -> each record evaluated exactly once
+      - entityMappings: CallerIdentity_s -> Account -> enables incident correlation
+      - grouping by Account, lookback PT24H,        -> one incident per attacker across
+        reopenClosedIncident=true                     rules and across attack breaks
+      - Rapid Probing bins on 5m (was 1m)          -> bursts spanning a minute still count
+
 .NOTES
     Requires: az CLI authenticated with Sentinel Contributor role
     Maps to: MITRE ATLAS AML.T0065 (LLM Prompt Injection)
@@ -29,16 +37,23 @@ function Deploy-Rule {
         [string]$Severity,
         [string]$Query,
         [string]$QueryFrequency = "PT5M",
-        [string]$QueryPeriod    = "PT30M",
+        [string]$QueryPeriod    = "PT5M",
         [string[]]$Tactics      = @("InitialAccess"),
-        [string[]]$Techniques   = @()
+        [string[]]$Techniques   = @(),
+        [hashtable]$CustomDetails = @{
+            Technique = "TechniqueId_s"
+            TestName  = "TestName_s"
+            Outcome   = "Status_s"
+        }
     )
 
     # Deterministic rule ID from display name so re-runs update in place
     # instead of creating duplicate rules.
     $sha = [System.Security.Cryptography.SHA1]::Create()
     $hash = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($DisplayName))
-    $ruleId = [guid]::new($hash[0..15]).ToString()
+    $guidBytes = [byte[]]::new(16)
+    [Array]::Copy($hash, 0, $guidBytes, 0, 16)
+    $ruleId = [guid]::new($guidBytes).ToString()
 
     $rule = @{
         kind = "Scheduled"
@@ -56,13 +71,39 @@ function Deploy-Rule {
             suppressionEnabled  = $false
             tactics             = $Tactics
             techniques          = $Techniques
+            # Emit ONE alert per rule run regardless of how many rows match,
+            # so a burst of prompts in a single window is a single alert.
+            eventGroupingSettings = @{
+                aggregationKind = "SingleAlert"
+            }
+            # Map the caller identity to an Account entity so Sentinel has
+            # something to correlate incidents on. Without entity mappings no
+            # grouping strategy can ever pair incidents.
+            entityMappings = @(
+                @{
+                    entityType    = "Account"
+                    fieldMappings = @(
+                        @{ identifier = "FullName"; columnName = "CallerIdentity_s" }
+                    )
+                }
+            )
+            customDetails = $CustomDetails
             incidentConfiguration = @{
                 createIncident = $true
                 groupingConfiguration = @{
                     enabled              = $true
-                    reopenClosedIncident = $false
-                    lookbackDuration     = "PT5M"
-                    matchingMethod       = "AllEntities"
+                    # Reopen a closed incident if the same attacker returns
+                    # rather than spawning a brand-new one.
+                    reopenClosedIncident = $true
+                    # 24h window pairs slow "low-and-slow" attacks that take
+                    # breaks between bursts.
+                    lookbackDuration     = "PT24H"
+                    # Group by the Account entity: one attacker = one incident
+                    # across ALL rules, while distinct attackers stay distinct.
+                    matchingMethod       = "Selected"
+                    groupByEntities      = @("Account")
+                    groupByAlertDetails  = @()
+                    groupByCustomDetails = @()
                 }
             }
         }
@@ -98,6 +139,7 @@ Deploy-Rule `
     -Tactics @("InitialAccess","Execution") `
     -Query @'
 AIPromptLog_CL
+| where ingestion_time() > ago(5m)
 | where Prompt_s has_any ("CompTIA", "certification exam", "class assignment",
     "cybersecurity course", "educational purposes", "security training",
     "academic research", "peer-reviewed", "for my course", "homework")
@@ -115,6 +157,7 @@ Deploy-Rule `
     -Tactics @("InitialAccess","Execution") `
     -Query @'
 AIPromptLog_CL
+| where ingestion_time() > ago(5m)
 | where Prompt_s has_any ("movie script", "novel I'm writing", "fictional",
     "creative writing", "screenplay", "short story", "hypothetically",
     "thought experiment", "role-play")
@@ -130,15 +173,22 @@ Deploy-Rule `
     -Description "Detects an attacker sending the same or similar prompts repeatedly to find non-deterministic safety bypasses. This rule covers the inference gap: content filters are probabilistic and an attacker can exploit inconsistency by repeating borderline prompts until one slips through. Runs every 5 minutes against the AIPromptLog_CL custom table populated by the lab test scripts. Maps to MITRE ATLAS AML.T0065 (LLM Prompt Injection)." `
     -Severity "Medium" `
     -Tactics @("Reconnaissance","InitialAccess") `
+    -QueryPeriod "PT30M" `
+    -CustomDetails @{ RepeatCount = "RepeatCount"; SamplePrompt = "SamplePrompt" } `
     -Query @'
 AIPromptLog_CL
 | where TimeGenerated > ago(30m)
+// Group by the EXACT prompt per identity so a repeated prompt is detected
+// even when mixed with other (distinct) traffic from the same caller, and
+// without binning so a burst that straddles a time boundary still counts.
 | summarize
-    RequestCount  = count(),
-    DistinctPrompts = dcount(Prompt_s),
-    SamplePrompt  = any(Prompt_s)
-    by CallerIdentity_s, bin(TimeGenerated, 1m)
-| where RequestCount >= 5 and DistinctPrompts <= 2
+    RepeatCount = count(),
+    FirstSeen   = min(TimeGenerated),
+    LastSeen    = max(TimeGenerated),
+    SamplePrompt = any(Prompt_s)
+    by CallerIdentity_s, Prompt_s
+| where RepeatCount >= 5
+| project LastSeen, CallerIdentity_s, SamplePrompt, RepeatCount
 '@
 
 # ── Rule 4: Output Content Analysis ───────────────────────────────────
@@ -149,6 +199,7 @@ Deploy-Rule `
     -Tactics @("Execution","Impact") `
     -Query @'
 AIPromptLog_CL
+| where ingestion_time() > ago(5m)
 | where Response_s has_any (
     "aircrack-ng", "hashcat", "sqlmap", "metasploit", "nmap -sV",
     "' OR 1=1", "SELECT * FROM", "hook_keyboard", "keylogger",

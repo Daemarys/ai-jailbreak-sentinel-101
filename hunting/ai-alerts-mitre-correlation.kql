@@ -2,8 +2,7 @@
 // Advanced Hunting: AI Security Alerts Correlated with MITRE ATT&CK Tactics
 // =============================================================================
 // Surfaces the latest AI-related security alerts, extracts MITRE tactics and
-// techniques, correlates with blocked request volumes from AzureDiagnostics,
-// and enriches with incident status for a unified threat view.
+// techniques, and enriches with incident status for a unified threat view.
 // =============================================================================
 
 let lookback = 7d;
@@ -30,25 +29,14 @@ let AIAlerts = SecurityAlert
         CompromisedEntity,
         AlertLink,
         SystemAlertId;
-// ----- Step 2: Blocked AI requests from AzureDiagnostics -----
-let BlockedRequests = AzureDiagnostics
-    | where TimeGenerated > ago(lookback)
-    | where ResourceProvider == "MICROSOFT.COGNITIVESERVICES"
-    | where ResultSignature == "400"
-    | summarize
-        BlockedCount = count(),
-        FirstBlocked = min(TimeGenerated),
-        LastBlocked = max(TimeGenerated),
-        TargetedModels = make_set(tostring(parse_json(properties_s).modelDeploymentName))
-      by CallerIPAddress, bin(TimeGenerated, 1h);
-// ----- Step 3: Incident correlation -----
+// ----- Step 2: Incident correlation -----
 let Incidents = SecurityIncident
     | where TimeGenerated > ago(lookback)
     | mv-expand AlertId = parse_json(AlertIds)
     | extend AlertId = tostring(AlertId)
     | project IncidentNumber, IncidentTitle = Title, IncidentSeverity = Severity,
               IncidentStatus = Status, Labels, AlertId;
-// ----- Step 4: Combine alerts with incidents and MITRE mapping -----
+// ----- Step 3: Combine alerts with incidents and MITRE mapping -----
 AIAlerts
 | join kind=leftouter (Incidents) on $left.SystemAlertId == $right.AlertId
 | extend

@@ -366,66 +366,61 @@ Expected: Most tests return `[BLOCKED]` (HTTP 400) — confirming content filter
 
 ## Step 8: Create Sentinel Analytics Rules
 
-```bash
-# Rule 1: AI Jailbreak Attempt Detected (Medium severity)
-# Fires when >3 blocked requests from the same IP in 24h
-az sentinel alert-rule create \
-  --resource-group rg-ai-jailbreak-lab \
-  --workspace-name law-ai-jailbreak-lab \
-  --rule-id "jailbreak-detect-01" \
-  --scheduled-alert-rule \
-    query="AzureDiagnostics | where ResourceProvider == 'MICROSOFT.COGNITIVESERVICES' | where ResultSignature == '400' | summarize AttemptCount=count(), FirstAttempt=min(TimeGenerated), LastAttempt=max(TimeGenerated) by CallerIPAddress, _ResourceId | where AttemptCount > 3" \
-    query-frequency="PT5M" \
-    query-period="P1D" \
-    severity="Medium" \
-    trigger-operator="GreaterThan" \
-    trigger-threshold=0 \
-    display-name="AI Jailbreak Attempt Detected" \
-    description="More than 3 blocked AI requests from same IP in 24h" \
-    enabled=true \
-    tactics="InitialAccess" \
-    kind="Scheduled"
+The lab's detections are **content-based** rules that run against the `AIPromptLog_CL`
+custom table (populated directly by the test scripts via the Data Collector API). They
+catch the "inference gap" — prompts that slip past the Azure OpenAI content filter and
+return harmful content — which is the core teaching point of this workshop.
 
-# Rule 2: AI Brute-Force Jailbreak (High severity)
-# Fires when >10 blocked requests in 1 hour
-az sentinel alert-rule create \
-  --resource-group rg-ai-jailbreak-lab \
-  --workspace-name law-ai-jailbreak-lab \
-  --rule-id "brute-force-jailbreak-01" \
-  --scheduled-alert-rule \
-    query="AzureDiagnostics | where ResourceProvider == 'MICROSOFT.COGNITIVESERVICES' | where ResultSignature == '400' | summarize AttemptCount=count() by CallerIPAddress, bin(TimeGenerated, 1h) | where AttemptCount > 10" \
-    query-frequency="PT5M" \
-    query-period="PT1H" \
-    severity="High" \
-    trigger-operator="GreaterThan" \
-    trigger-threshold=0 \
-    display-name="AI Brute-Force Jailbreak Detected" \
-    description="More than 10 blocked AI requests from same IP in 1 hour" \
-    enabled=true \
-    tactics="InitialAccess" \
-    kind="Scheduled"
+Deploy all four rules with the helper script:
 
-# Rule 3: AI High Block Ratio (Medium severity)
-# Fires when >50% of requests from an IP are blocked
-az sentinel alert-rule create \
-  --resource-group rg-ai-jailbreak-lab \
-  --workspace-name law-ai-jailbreak-lab \
-  --rule-id "high-block-ratio-03" \
-  --scheduled-alert-rule \
-    query="AzureDiagnostics | where ResourceProvider == 'MICROSOFT.COGNITIVESERVICES' | summarize Total=count(), Blocked=countif(ResultSignature == '400') by CallerIPAddress | extend BlockRatio=round(todouble(Blocked)/Total*100, 1) | where BlockRatio > 50 and Total > 5" \
-    query-frequency="PT5M" \
-    query-period="P1D" \
-    severity="Medium" \
-    trigger-operator="GreaterThan" \
-    trigger-threshold=0 \
-    display-name="AI High Block Ratio Detected" \
-    description="More than 50 percent of AI requests from an IP are blocked" \
-    enabled=true \
-    tactics="InitialAccess" \
-    kind="Scheduled"
+```powershell
+.\hunting\deploy-analytics-rules.ps1
 ```
 
+This creates the following scheduled rules (each maps to MITRE ATLAS AML.T0065):
+
+| Rule | Severity | Detects |
+|---|---|---|
+| AI Jailbreak - Educational Framing Attack | High | Coursework/certification framing requesting attack techniques |
+| AI Jailbreak - Creative Writing Attack | High | Fiction/screenplay framing requesting attack methods |
+| AI Jailbreak - Rapid Probing (Consistency Attack) | Medium | The same prompt repeated ≥5× by one identity |
+| AI Jailbreak - Attack Tools in Response | High | Offensive-tool signatures (mimikatz, sqlmap, …) in the model response |
+
+The rules are tuned for clean, low-noise incidents — see
+[`TESTING.md` § Alert Grouping & Noise Reduction](TESTING.md#alert-grouping--noise-reduction)
+for the grouping, entity-mapping, and dedup design.
+
+> **Note — why there are no `AzureDiagnostics` volume rules.** Earlier versions of this
+> lab also shipped three IP-volume rules (`jailbreak-detect-01`, `brute-force-jailbreak-01`,
+> `high-block-ratio-03`) that counted blocked (HTTP 400) requests in `AzureDiagnostics`.
+> They were **removed** because:
+> 1. Azure OpenAI **data-plane request logs are not emitted by default** — the content-filter
+>    400s never reach `AzureDiagnostics` unless you explicitly enable the *RequestResponse*
+>    diagnostic category, so the rules had no data to fire on.
+> 2. A *high block ratio* means the filter is **succeeding** (the attacker is being stopped) —
+>    the opposite of the bypass signal this lab teaches.
+> 3. They were redundant with the content rules above.
+>
+> If you specifically want to demo SOC volume detection, enable the *RequestResponse*
+> diagnostic category on the Azure OpenAI resource and reintroduce those rules — but it is
+> not required for the lab.
+
+### Troubleshooting: "The rule ... was recently deleted" (HTTP 409 Conflict)
+
+If you delete an analytics rule and recreate it with the **same rule ID** too soon, the API returns:
+
+```
+Conflict: The rule with id '<id>' was recently deleted.
+You need to allow some time before re-using the same id. Please try again later.
+```
+
+This is expected — a deleted rule ID is held in a short cooldown before it can be reused.
+The content rules use **deterministic GUIDs derived from the display name**, so re-running
+`deploy-analytics-rules.ps1` is idempotent and updates rules in place. If you hit the
+cooldown after a manual delete, simply wait a few minutes and re-run the script.
+
 ---
+
 
 ## Step 9: Deploy Auto-Tag Playbook
 
